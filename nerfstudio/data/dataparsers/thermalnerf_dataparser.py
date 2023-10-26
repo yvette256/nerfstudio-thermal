@@ -1,12 +1,24 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Type
 
-
-from nerfstudio.data.dataparsers.nerfstudio_dataparser import Nerfstudio
+from nerfstudio.data.dataparsers.nerfstudio_dataparser import Nerfstudio, NerfstudioDataParserConfig
 from nerfstudio.utils.io import load_from_json
 
 
 @dataclass
+class ThermalNerfDataParserConfig(NerfstudioDataParserConfig):
+    """Thermal Nerfstudio dataset config"""
+
+    _target: Type = field(default_factory=lambda: ThermalNerf)
+    """target class to instantiate"""
+
+
+@dataclass
 class ThermalNerf(Nerfstudio):
+    """Thermal Nerfstudio DatasetParser"""
+
+    config = ThermalNerfDataParserConfig
+
     def _generate_dataparser_outputs(self, split="train"):
         dataparser_outputs = super()._generate_dataparser_outputs(split=split)
 

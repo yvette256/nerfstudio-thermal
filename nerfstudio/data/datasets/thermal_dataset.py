@@ -9,4 +9,4 @@ class ThermalDataset(InputDataset):
         super().__init__(dataparser_outputs=dataparser_outputs, scale_factor=scale_factor)
 
     def get_metadata(self, data: Dict) -> Dict:
-        return {"is_thermal": self.metadata["is_thermal"]}
+        return {"is_thermal": self.metadata["is_thermal"][data["image_idx"]]}

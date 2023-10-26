@@ -3,13 +3,15 @@ import json
 from pathlib import Path
 from typing import Optional
 
+from nerfstudio.process_data import process_data_utils
 from nerfstudio.process_data.images_to_nerfstudio_dataset import ImagesToNerfstudioDataset
 from nerfstudio.utils.rich_utils import CONSOLE
-import process_data_utils
 
 
 @dataclass
 class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
+    """Process images into a thermal nerfstudio dataset."""
+
     thermal_data: Path = None
     eval_thermal_data: Optional[Path] = None
 
@@ -26,6 +28,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         return self.output_dir / "images_thermal"
 
     def main(self) -> None:
+        """Process images into a thermal nerfstudio dataset."""
         super().main()
 
         if not self.skip_image_processing:
@@ -58,9 +61,10 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         thermal_frames = []
         for i, frame in enumerate(file_data["frames"]):
             if self.skip_image_processing:
-                thermal_frame_name = frame["file_path"].replace(self.data, self.thermal_data)
+                thermal_frame_name = frame["file_path"].replace(self.data.as_posix(), self.thermal_data.as_posix())
             else:
-                thermal_frame_name = frame["file_path"].replace(self.image_dir, self.thermal_image_dir)
+                # NOTE: this can be more principled
+                thermal_frame_name = frame["file_path"].replace("images", "images_thermal")
 
             file_data["frames"][i]["is_thermal"] = 0
             thermal_frame = {
@@ -71,9 +75,9 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             }
             thermal_frames.append(thermal_frame)
         # file_data["thermal_frames"] = thermal_frames
-        file_data["frames"].update(thermal_frames)
+        file_data["frames"] += thermal_frames
 
         with open(self.output_dir / "transforms.json", "w", encoding="utf-8") as f:
             json.dump(file_data, f, indent=4)
 
-        CONSOLE.log("[bold green] just kidding lol we have to process thermal data too")
+        CONSOLE.log("[bold green]:tada: Done processing thermal data.")

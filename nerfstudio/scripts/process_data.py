@@ -36,6 +36,7 @@ from nerfstudio.process_data import (
 from nerfstudio.process_data.colmap_converter_to_nerfstudio_dataset import BaseConverterToNerfstudioDataset
 from nerfstudio.process_data.images_to_nerfstudio_dataset import ImagesToNerfstudioDataset
 from nerfstudio.process_data.video_to_nerfstudio_dataset import VideoToNerfstudioDataset
+from nerfstudio.process_data.rgbt_to_nerfstudio_dataset import RGBTToNerfstudioDataset
 from nerfstudio.utils.rich_utils import CONSOLE
 
 
@@ -390,6 +391,7 @@ class ProcessRealityCapture(BaseConverterToNerfstudioDataset, _NoDefaultProcessR
 Commands = Union[
     Annotated[ImagesToNerfstudioDataset, tyro.conf.subcommand(name="images")],
     Annotated[VideoToNerfstudioDataset, tyro.conf.subcommand(name="video")],
+    Annotated[RGBTToNerfstudioDataset, tyro.conf.subcommand(name="rgbt")],
     Annotated[ProcessPolycam, tyro.conf.subcommand(name="polycam")],
     Annotated[ProcessMetashape, tyro.conf.subcommand(name="metashape")],
     Annotated[ProcessRealityCapture, tyro.conf.subcommand(name="realitycapture")],

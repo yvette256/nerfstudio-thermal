@@ -35,6 +35,7 @@ from nerfstudio.data.dataparsers.phototourism_dataparser import PhototourismData
 from nerfstudio.data.dataparsers.scannet_dataparser import ScanNetDataParserConfig
 from nerfstudio.data.dataparsers.sdfstudio_dataparser import SDFStudioDataParserConfig
 from nerfstudio.data.dataparsers.sitcoms3d_dataparser import Sitcoms3DDataParserConfig
+from nerfstudio.data.dataparsers.thermalnerf_dataparser import ThermalNerfDataParserConfig
 from nerfstudio.plugins.registry_dataparser import discover_dataparsers
 
 dataparsers = {
@@ -52,6 +53,7 @@ dataparsers = {
     "nerfosr-data": NeRFOSRDataParserConfig(),
     "sitcoms3d-data": Sitcoms3DDataParserConfig(),
     "colmap": ColmapDataParserConfig(),
+    "thermalnerf-data": ThermalNerfDataParserConfig(),
 }
 
 external_dataparsers, _ = discover_dataparsers()
