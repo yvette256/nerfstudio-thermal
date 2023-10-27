@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from nerfstudio.process_data import process_data_utils
+from nerfstudio.process_data import process_data_utils, flir_utils
 from nerfstudio.process_data.images_to_nerfstudio_dataset import ImagesToNerfstudioDataset
 from nerfstudio.utils.rich_utils import CONSOLE
 
@@ -16,10 +16,12 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
     eval_thermal_data: Optional[Path] = None
 
     def __post_init__(self) -> None:
+        flir_utils.extract_raws_from_dir(self.data)
+        CONSOLE.log("[bold green]:tada: Extracted raw RGB/T images from FLIR data.")
+        self.data = self.data.parent / (self.data.name + '_raw') / 'rgb'
+
         super().__post_init__()
 
-        # NOTE: Here we assume another script has extracted raw RGB/T from the FLIR images.
-        #  But we probably want to do all the preprocessing here.
         if self.thermal_data is None:
             self.thermal_data = self.data.parent / Path(str(self.data.name).replace('rgb', 'thermal'))
 
