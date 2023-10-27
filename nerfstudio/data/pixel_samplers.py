@@ -170,7 +170,7 @@ class PixelSampler:
         c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
         c, y, x = c.cpu(), y.cpu(), x.cpu()
         collated_batch = {
-            key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and value is not None
+            key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and key != "is_thermal" and value is not None
         }
         assert collated_batch["image"].shape[0] == num_rays_per_batch
 
@@ -179,6 +179,8 @@ class PixelSampler:
         collated_batch["indices"] = indices  # with the abs camera indices
         if keep_full_image:
             collated_batch["full_image"] = batch["image"]
+        if "is_thermal" in batch:
+            collated_batch["is_thermal"] = batch["is_thermal"][c]
 
         return collated_batch
 

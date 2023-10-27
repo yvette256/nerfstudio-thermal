@@ -16,15 +16,19 @@
 Collection of Losses.
 """
 from enum import Enum
-from typing import Dict, Literal, Optional, Tuple, cast
+from typing import Dict, Literal, Optional, Tuple, Union, cast
 
 import torch
 from jaxtyping import Bool, Float
 from torch import Tensor, nn
+from torchmetrics.functional import structural_similarity_index_measure
+from torchmetrics.image import PeakSignalNoiseRatio
+from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 from nerfstudio.cameras.rays import RaySamples
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.utils.math import masked_reduction, normalized_depth_scale_and_shift
+from nerfstudio.utils.rgbt_utils import align_gt_with_pred_rgbt
 
 L1Loss = nn.L1Loss
 MSELoss = nn.MSELoss
@@ -579,3 +583,63 @@ def depth_ranking_loss(rendered_depth, gt_depth):
     out_diff = rendered_depth[::2, :] - rendered_depth[1::2, :] + m
     differing_signs = torch.sign(dpt_diff) != torch.sign(out_diff)
     return torch.nanmean((out_diff[differing_signs] * torch.sign(out_diff[differing_signs])))
+
+
+class MSELossRGBT(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.mse_loss = MSELoss()
+
+    def forward(
+            self,
+            gt_rgbt: Float[Tensor, "*bs 4"],
+            pred_rgbt: Float[Tensor, "*bs 4"],
+            is_thermal: Float[Tensor, "*bs"],
+    ) -> Tensor:
+        gt_rgbt = align_gt_with_pred_rgbt(gt_rgbt, pred_rgbt, is_thermal)
+        return self.mse_loss(gt_rgbt, pred_rgbt)
+
+
+class PeakSignalNoiseRatioRGBT(nn.Module):
+    def __init__(
+            self,
+            data_range: Optional[Union[float, Tuple[float, float]]] = None,
+    ):
+        super().__init__()
+        self.psnr = PeakSignalNoiseRatio(data_range=data_range)
+
+    def forward(
+            self,
+            gt_rgbt: Float[Tensor, "*bs 4"],
+            pred_rgbt: Float[Tensor, "*bs 4"],
+            is_thermal: Float[Tensor, "*bs"],
+    ) -> Tensor:
+        gt_rgbt = align_gt_with_pred_rgbt(gt_rgbt, pred_rgbt, is_thermal)
+        return self.psnr(gt_rgbt, pred_rgbt)
+
+
+def ssim_rgbt(
+        gt_rgbt: Float[Tensor, "*bs 4"],
+        pred_rgbt: Float[Tensor, "*bs 4"],
+        is_thermal: Float[Tensor, "*bs"],
+) -> Tensor:
+    gt_rgbt = align_gt_with_pred_rgbt(gt_rgbt, pred_rgbt, is_thermal)
+    return structural_similarity_index_measure(gt_rgbt, pred_rgbt)
+
+
+class LearnedPerceptualImagePatchSimilarityRGBT(nn.Module):
+    def __init__(
+            self,
+            normalize: bool = False,
+    ):
+        super().__init__()
+        self.lpips = LearnedPerceptualImagePatchSimilarity(normalize=normalize)
+
+    def forward(
+            self,
+            gt_rgbt: Float[Tensor, "*bs 4"],
+            pred_rgbt: Float[Tensor, "*bs 4"],
+            is_thermal: Float[Tensor, "*bs"],
+    ) -> Tensor:
+        gt_rgbt = align_gt_with_pred_rgbt(gt_rgbt, pred_rgbt, is_thermal)
+        return self.lpips(gt_rgbt, pred_rgbt)

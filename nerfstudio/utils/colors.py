@@ -33,6 +33,20 @@ COLORS_DICT = {
     "blue": BLUE,
 }
 
+WHITE_RGBT = torch.tensor([1.0, 1.0, 1.0, 0.0])
+BLACK_RGBT = torch.tensor([0.0, 0.0, 0.0, 0.0])
+RED_RGBT = torch.tensor([1.0, 0.0, 0.0, 0.0])
+GREEN_RGBT =torch.tensor([0.0, 1.0, 0.0, 0.0])
+BLUE_RGBT = torch.tensor([0.0, 0.0, 1.0, 0.0])
+
+COLORS_RGBT_DICT = {
+    "white": WHITE,
+    "black": BLACK,
+    "red": RED,
+    "green": GREEN,
+    "blue": BLUE,
+}
+
 
 def get_color(color: Union[str, list]) -> Float[Tensor, "3"]:
     """
@@ -47,6 +61,27 @@ def get_color(color: Union[str, list]) -> Float[Tensor, "3"]:
         if color not in COLORS_DICT:
             raise ValueError(f"{color} is not a valid preset color")
         return COLORS_DICT[color]
+    if isinstance(color, list):
+        if len(color) != 3:
+            raise ValueError(f"Color should be 3 values (RGB) instead got {color}")
+        return torch.tensor(color)
+
+    raise ValueError(f"Color should be an RGB list or string, instead got {type(color)}")
+
+
+def get_color_rgbt(color: Union[str, list]) -> Float[Tensor, "4"]:
+    """
+    Args:
+        Color as a string or a rgb list
+
+    Returns:
+        Parsed color
+    """
+    if isinstance(color, str):
+        color = color.lower()
+        if color not in COLORS_RGBT_DICT:
+            raise ValueError(f"{color} is not a valid preset color")
+        return COLORS_RGBT_DICT[color]
     if isinstance(color, list):
         if len(color) != 3:
             raise ValueError(f"Color should be 3 values (RGB) instead got {color}")
