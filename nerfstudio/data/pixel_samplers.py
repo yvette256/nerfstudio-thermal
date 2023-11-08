@@ -180,7 +180,8 @@ class PixelSampler:
         if keep_full_image:
             collated_batch["full_image"] = batch["image"]
         if "is_thermal" in batch:
-            collated_batch["is_thermal"] = batch["is_thermal"][c]
+            thermal_idx = batch["is_thermal"][batch["image_idx"].sort()[1]]
+            collated_batch["is_thermal"] = thermal_idx[c]
 
         return collated_batch
 
