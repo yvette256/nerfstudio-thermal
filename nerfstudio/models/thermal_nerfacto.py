@@ -3,6 +3,7 @@ from typing import Dict, List, Literal, Tuple, Type
 
 import torch
 
+from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.thermal_nerfacto_field import ThermalNerfactoField
 from nerfstudio.model_components.renderers import RGBTRenderer
@@ -116,6 +117,13 @@ class ThermalNerfactoModel(NerfactoModel):
             # Add loss from camera optimizer
             self.camera_optimizer.get_loss_dict(loss_dict)
         return loss_dict
+
+    def get_outputs(self, ray_bundle: RayBundle):
+        outputs = super().get_outputs(ray_bundle)
+        rgbt = outputs["rgb"]
+        outputs["rgb_actual"] = rgbt[..., :3]
+        outputs["thermal"] = rgbt[..., 3:]
+        return outputs
 
     def get_image_metrics_and_images(
             self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
