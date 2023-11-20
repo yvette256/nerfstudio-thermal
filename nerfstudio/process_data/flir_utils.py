@@ -19,6 +19,9 @@ from matplotlib import pyplot as plt
 import numpy as np
 import skimage
 
+import cv2
+import copy
+
 from nerfstudio.utils.rich_utils import CONSOLE, status
 
 
@@ -262,6 +265,142 @@ class FlirImageExtractor:
                 pixel_values.append([x, y, c])
 
             writer.writerows(pixel_values)
+
+"""Added - PXY Nov 20"""
+def cropImage(filename):
+    im = Image.open(filename)
+    width, height = im.size
+    left = width / 6
+    top = height / 2
+    right = 5 * width / 6
+    bottom = height
+    im1 = im.crop((left, top, right, bottom))
+    gray = cv2.cvtColor(np.array(im1), cv2.COLOR_BGR2GRAY)
+    return width, height, gray
+
+"""Detect circles and get coordinates of centroids"""
+def getCoordinates(gray, width, height):
+    # Blur using 3 * 3 kernel.
+    gray_blurred = cv2.blur(gray, (3, 3))
+
+    # Apply Hough transform on the blurred image.
+    if str(gray) == str(grayrgb):
+        detected_circles = cv2.HoughCircles(gray_blurred, cv2.HOUGH_GRADIENT, 1, 20, param1=30, param2=10, minRadius=10, maxRadius=16)
+    elif str(gray) == str(graythermal):
+        detected_circles = cv2.HoughCircles(gray_blurred, cv2.HOUGH_GRADIENT, 1, 20, param1=30, param2=10, minRadius=5, maxRadius=10)
+    # print(detected_circles.shape[1])
+    if detected_circles.shape[1] == 44:
+        # Convert the circle parameters a, b and r to integers.
+        detected_circles = np.uint16(np.around(detected_circles))
+        points = []
+        radius = []
+        ct = 1
+        for pt in detected_circles[0, :]:
+            a, b, r = pt[0], pt[1], pt[2]
+            points.append((a,b,ct))
+            radius.append(r)
+            ct = ct + 1
+
+        """ Coordinates """
+        coordinates = []
+        for i in points:
+            coordinates.append([i[0] + width / 6, i[1] + height / 2])
+
+        return coordinates
+
+"""Reconcile corresponding points"""
+def sortCoordinates(coordinates):
+    sortedcoor = sorted(coordinates, key=lambda k: [k[1], k[0]])
+    sorted_coor = sortedcoor
+    for j in range(8):
+        if j%2 == 0:
+            rangemin = int((j/2)*11)
+            rangemax = int((j/2)*11+5)
+            avg = np.mean(sortedcoor[rangemin:rangemax], axis = 0)
+            for i in range(rangemin,rangemax+1,1):
+                sorted_coor[i][1] = avg[1]
+        else:
+            rangemin = int(j*6+((j-1)/2)*(-1))
+            rangemax = int(j*6+((j-1)/2)*(-1)+4)
+            avg = np.mean(sortedcoor[rangemin:rangemax], axis=0)
+            for i in range(rangemin,rangemax+1,1):
+                sorted_coor[i][1] = avg[1]
+
+    sorted_coor = sorted(sorted_coor, key=lambda k: [k[1], k[0]])
+    return sorted_coor
+
+def cameraCalibration(obj_points, img_points, gray):
+    obj_points = np.array([obj_points], dtype = np.float32)
+    img_points = np.array([img_points], dtype = np.float32)
+    ret, camera_mat, distortion, rotation_vecs, translation_vecs = cv2.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
+    return camera_mat, distortion, rotation_vecs, translation_vecs
+
+def transferMatrices(obj_points, img_points, gray):
+    for pt in obj_points:
+        pt.append(0)
+    obj_points = np.array([obj_points], dtype = np.float32)
+    img_points = np.array([img_points], dtype = np.float32)
+    ret, camera_mat, distortion, rotation_vecs, translation_vecs = cv2.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
+    testrot = np.array(rotation)
+    testrot = testrot.astype(np.float32)
+    [rot_matrix, jacobian] = cv2.Rodrigues(testrot)
+    return rot_matrix, translation_vecs
+
+def camera_calibration(thermal_filename, rgb_filename):
+    widththermal, heightthermal, graythermal = cropImage(thermal_filename)
+    widthrgb, heightrgb, grayrgb = cropImage(rgb_filename)
+
+    "Adding filters to remove 'noise' and other objects"
+    for i in range(grayrgb.shape[0]):
+        for j in range(grayrgb.shape[1]):
+            if grayrgb[i][j] < 170:
+                grayrgb[i][j] = 20
+            else:
+                grayrgb[i][j] = 170
+    for i in range(graythermal.shape[0]):
+        for j in range(graythermal.shape[1]):
+            if graythermal[i][j] < 95:
+                graythermal[i][j] = 80
+            else:
+                graythermal[i][j] = 150
+
+    coordinatesrgb = getCoordinates(grayrgb, widthrgb, heightrgb)
+    coordinatesthermal = getCoordinates(graythermal, widththermal, heightthermal)
+
+    """Object points"""
+    diameter = 1.5 # cm
+    c_c = 1.5+2.3 # centre-centre (vertical and horizontal)
+    dist = 0 # planar calibration points
+    objpoints = []
+    for ii in range(8): # number of rows - specific to calibration target
+        ypt = 0.5*diameter + (0.5 * (c_c) + 0.5 * diameter)*ii
+        if ii%2 == 0:
+            for jj in range(6):
+                xpt = jj * (c_c + diameter) + 0.5 * diameter
+                objpoints.append([xpt, ypt, dist])
+        else:
+            for jj in range(5):
+                xpt = jj * (c_c + diameter) + (diameter + 0.5*c_c)
+                objpoints.append([xpt, ypt, dist])
+
+    rgb_points_unscaled = sortCoordinates(coordinatesrgb)
+    thermal_points = sortCoordinates(coordinatesthermal)
+    obj_points = sortCoordinates(objpoints)
+
+    """Scaling RGB to thermal"""
+    widthratio = widththermal / widthrgb
+    heightratio = heightthermal / heightrgb
+
+    rgb_points = copy.deepcopy(rgb_points_unscaled)
+    for i in range(len(rgb_points)):
+        rgb_points[i][0] = rgb_points_unscaled[i][0] * widthratio
+        rgb_points[i][1] = rgb_points_unscaled[i][1] * heightratio
+
+    camera_rgb, distortion_rgb, rotation_rgb, translation_rgb = cameraCalibration(obj_points, rgb_points, grayrgb)
+    camera_thermal, distortion_thermal, rotation_thermal, translation_thermal = cameraCalibration(obj_points, thermal_points, graythermal)
+    thermal_points_3D = copy.deepcopy(thermal_points)
+    rotation, translation = transferMatrices(thermal_points_3D, rgb_points, grayrgb)
+    return camera_rgb, camera_thermal, rotation, translation
 
 
 def raw_nps_from_flir(img_path, verbose=False):
