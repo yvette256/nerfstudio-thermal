@@ -266,8 +266,11 @@ class FlirImageExtractor:
 
             writer.writerows(pixel_values)
 
-"""Added - PXY Nov 20"""
 def cropImage(filename):
+    """
+    used with camera calibration
+    returns: width, height and image in grayscale
+    """
     im = Image.open(filename)
     width, height = im.size
     left = width / 6
@@ -278,19 +281,18 @@ def cropImage(filename):
     gray = cv2.cvtColor(np.array(im1), cv2.COLOR_BGR2GRAY)
     return width, height, gray
 
-"""Detect circles and get coordinates of centroids"""
 def getCoordinates(gray, width, height):
+    """
+    detects circles and get coordinates of centroids
+    returns coordinates of centroids
+    """
     # Blur using 3 * 3 kernel.
     gray_blurred = cv2.blur(gray, (3, 3))
-
-    # Apply Hough transform on the blurred image.
     if str(gray) == str(grayrgb):
         detected_circles = cv2.HoughCircles(gray_blurred, cv2.HOUGH_GRADIENT, 1, 20, param1=30, param2=10, minRadius=10, maxRadius=16)
     elif str(gray) == str(graythermal):
         detected_circles = cv2.HoughCircles(gray_blurred, cv2.HOUGH_GRADIENT, 1, 20, param1=30, param2=10, minRadius=5, maxRadius=10)
-    # print(detected_circles.shape[1])
     if detected_circles.shape[1] == 44:
-        # Convert the circle parameters a, b and r to integers.
         detected_circles = np.uint16(np.around(detected_circles))
         points = []
         radius = []
@@ -300,16 +302,16 @@ def getCoordinates(gray, width, height):
             points.append((a,b,ct))
             radius.append(r)
             ct = ct + 1
-
-        """ Coordinates """
         coordinates = []
         for i in points:
             coordinates.append([i[0] + width / 6, i[1] + height / 2])
-
         return coordinates
 
-"""Reconcile corresponding points"""
 def sortCoordinates(coordinates):
+    """
+    reconcile corresponding points
+    returns points in a uniform sequence
+    """
     sortedcoor = sorted(coordinates, key=lambda k: [k[1], k[0]])
     sorted_coor = sortedcoor
     for j in range(8):
@@ -325,17 +327,22 @@ def sortCoordinates(coordinates):
             avg = np.mean(sortedcoor[rangemin:rangemax], axis=0)
             for i in range(rangemin,rangemax+1,1):
                 sorted_coor[i][1] = avg[1]
-
     sorted_coor = sorted(sorted_coor, key=lambda k: [k[1], k[0]])
     return sorted_coor
 
 def cameraCalibration(obj_points, img_points, gray):
+    """
+    returns camera intrinsics
+    """
     obj_points = np.array([obj_points], dtype = np.float32)
     img_points = np.array([img_points], dtype = np.float32)
     ret, camera_mat, distortion, rotation_vecs, translation_vecs = cv2.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
     return camera_mat, distortion, rotation_vecs, translation_vecs
 
 def transferMatrices(obj_points, img_points, gray):
+    """
+    returns translation vector and rotation matrix
+    """
     for pt in obj_points:
         pt.append(0)
     obj_points = np.array([obj_points], dtype = np.float32)
@@ -347,10 +354,13 @@ def transferMatrices(obj_points, img_points, gray):
     return rot_matrix, translation_vecs
 
 def camera_calibration(thermal_filename, rgb_filename):
+    """
+    actual function for camera calibration that uses the above functions
+    returns intrinsics for rgb and thermal cameras, as well as the rotation matrix and translation vector between both cameras
+    """
     widththermal, heightthermal, graythermal = cropImage(thermal_filename)
     widthrgb, heightrgb, grayrgb = cropImage(rgb_filename)
 
-    "Adding filters to remove 'noise' and other objects"
     for i in range(grayrgb.shape[0]):
         for j in range(grayrgb.shape[1]):
             if grayrgb[i][j] < 170:
