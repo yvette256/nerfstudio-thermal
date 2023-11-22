@@ -266,6 +266,7 @@ class FlirImageExtractor:
 
             writer.writerows(pixel_values)
 
+
 def cropImage(filename):
     """
     used with camera calibration
@@ -280,6 +281,7 @@ def cropImage(filename):
     im1 = im.crop((left, top, right, bottom))
     gray = cv2.cvtColor(np.array(im1), cv2.COLOR_BGR2GRAY)
     return width, height, gray
+
 
 def getCoordinates(gray, width, height):
     """
@@ -307,6 +309,7 @@ def getCoordinates(gray, width, height):
             coordinates.append([i[0] + width / 6, i[1] + height / 2])
         return coordinates
 
+
 def sortCoordinates(coordinates):
     """
     reconcile corresponding points
@@ -330,6 +333,7 @@ def sortCoordinates(coordinates):
     sorted_coor = sorted(sorted_coor, key=lambda k: [k[1], k[0]])
     return sorted_coor
 
+
 def cameraCalibration(obj_points, img_points, gray):
     """
     returns camera intrinsics
@@ -338,6 +342,7 @@ def cameraCalibration(obj_points, img_points, gray):
     img_points = np.array([img_points], dtype = np.float32)
     ret, camera_mat, distortion, rotation_vecs, translation_vecs = cv2.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
     return camera_mat, distortion, rotation_vecs, translation_vecs
+
 
 def transferMatrices(obj_points, img_points, gray):
     """
@@ -352,6 +357,7 @@ def transferMatrices(obj_points, img_points, gray):
     testrot = testrot.astype(np.float32)
     [rot_matrix, jacobian] = cv2.Rodrigues(testrot)
     return rot_matrix, translation_vecs
+
 
 def camera_calibration(thermal_filename, rgb_filename):
     """
@@ -441,11 +447,10 @@ def extract_raws_from_dir(in_path, out_path=None):
 
             img_visual = Image.fromarray(rgb_np)
 
-            # HACK: For now, upsample thermal image to get image of the same dimension as RGB.
             # TODO: Change NeRF model to handle images of different camera resolutions.
-            h, w, _ = rgb_np.shape
+            # h, w, _ = rgb_np.shape
             thermal_normalized = (thermal_np - np.amin(thermal_np)) / (np.amax(thermal_np) - np.amin(thermal_np))
-            thermal_normalized = skimage.transform.resize(thermal_normalized, (h, w))
+            # thermal_normalized = skimage.transform.resize(thermal_normalized, (h, w))
             # img_thermal = Image.fromarray(np.uint8(cm.inferno(thermal_normalized) * 255))
             img_thermal = Image.fromarray(np.uint8(thermal_normalized * 255))
 

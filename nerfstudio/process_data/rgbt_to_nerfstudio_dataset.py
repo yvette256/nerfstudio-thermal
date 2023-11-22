@@ -60,6 +60,9 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         with open(self.output_dir / "transforms.json", "r", encoding="utf-8") as f:
             file_data = json.load(f)
 
+        # Camera params to set as per-frame rather than fixed in transforms.json
+        camera_params = ["w", "h"]
+
         thermal_frames = []
         for i, frame in enumerate(file_data["frames"]):
             if self.skip_image_processing:
@@ -67,6 +70,9 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             else:
                 # NOTE: this can be more principled
                 thermal_frame_name = frame["file_path"].replace("images", "images_thermal")
+
+            for param in camera_params:
+                file_data["frames"][param] = file_data[param]
 
             file_data["frames"][i]["is_thermal"] = 0
             thermal_frame = {
@@ -79,6 +85,8 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         # file_data["thermal_frames"] = thermal_frames
         file_data["frames"] += thermal_frames
 
+        for param in camera_params:
+            del camera_params[param]
         with open(self.output_dir / "transforms.json", "w", encoding="utf-8") as f:
             json.dump(file_data, f, indent=4)
 
