@@ -170,7 +170,8 @@ class PixelSampler:
         c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
         c, y, x = c.cpu(), y.cpu(), x.cpu()
         collated_batch = {
-            key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and key != "is_thermal" and value is not None
+            key: value[c, y, x] for key, value in batch.items()
+            if key != "image_idx" and key != "is_thermal" and value is not None
         }
         assert collated_batch["image"].shape[0] == num_rays_per_batch
 
@@ -244,7 +245,7 @@ class PixelSampler:
         collated_batch = {
             key: value[c, y, x]
             for key, value in batch.items()
-            if key != "image_idx" and key != "image" and key != "mask" and value is not None
+            if key != "image_idx" and key != "image" and key != "mask" and key != "is_thermal" and value is not None
         }
 
         collated_batch["image"] = torch.cat(all_images, dim=0)
@@ -257,6 +258,9 @@ class PixelSampler:
 
         if keep_full_image:
             collated_batch["full_image"] = batch["image"]
+        if "is_thermal" in batch:
+            thermal_idx = batch["is_thermal"][batch["image_idx"].sort()[1]]
+            collated_batch["is_thermal"] = thermal_idx[c]
 
         return collated_batch
 
