@@ -410,7 +410,7 @@ def calibrate_rgb_thermal(
     for i in range(len(rvecs_rgb)):
         rmat_rgb = cv2.Rodrigues(rvecs_rgb[i])
         rmat_thermal = cv2.Rodrigues(rvecs_thermal[i])
-        rmats_relative = rmat_rgb.inv() @ rmat_thermal
+        rmats_relative = rmat_thermal @ rmat_rgb.inv()
     # Compute "average" relative rotation
     mean_rmat_relative = sum(rmats_relative) / len(rvecs_rgb)
     U, S, Vh = np.linalg.svd(mean_rmat_relative)
