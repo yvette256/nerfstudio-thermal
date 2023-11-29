@@ -123,6 +123,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             thermal_camera_params["p2"] = p2_thermal
 
             # Get extrinsics
+            # TODO: fix colmap -> calibration world transform, I don't think it's actually computed like this lol
             colmap_calibration_transform[0, 0], colmap_calibration_transform[1, 1], colmap_calibration_transform[2, 2] = scale
             tvec, rmat = cal_result["tvec_relative"], cal_result["rmat_relative"]
             T, R = np.identity(4), np.identity(4)

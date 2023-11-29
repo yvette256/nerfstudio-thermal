@@ -11,8 +11,8 @@ from nerfstudio.utils.rich_utils import CONSOLE, status
 def get_calibration_target_circle_centers():
     # The fixed marker coordinates here are specified in OpenCV coords, though: x right, y down, z=0
     # diameter = 1.5  # cm
-    # c_c = 1.5 + 2.3  # centre-centre (vertical and horizontal)
-    c_c = 1.
+    c_c = 1.5 + 2.3  # centre-centre (vertical and horizontal)
+    # c_c = 1.
     dist = 0.  # planar calibration points
     objpoints = []
     # for col in range(10, -1, -1):
