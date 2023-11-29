@@ -165,6 +165,7 @@ def estimate_intrinsics(image_file_names=[],
           mode 1: fix principle point to image center but don't fix focal length
           mode 2: don't fix principle point but fix focal length of x and y to be the same
           mode 3: fix principle point to image center and fix focal length of x and y to be the same
+          mode 4: fix focal length of x and y to be the same but don't use initial guess
     """
     #####################################################################
     # 1. find markers in images
@@ -208,6 +209,10 @@ def estimate_intrinsics(image_file_names=[],
 
     # no initial guess
     if intrinsic_calibration_mode == 0:
+        ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, imgsize, None, None,
+                                                           flags=calibration_flags)
+    elif intrinsic_calibration_mode == 4:
+        calibration_flags += (cv2.CALIB_FIX_ASPECT_RATIO + cv2.CALIB_FIX_PRINCIPAL_POINT)
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, imgsize, None, None,
                                                            flags=calibration_flags)
 
