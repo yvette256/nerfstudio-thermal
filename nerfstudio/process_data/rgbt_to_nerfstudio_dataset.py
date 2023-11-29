@@ -75,16 +75,51 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         h_thermal, w_thermal = cv2.imread(
             (self.output_dir / Path(self._rgb_to_thermal_path(file_data["frames"][0]["file_path"]))).as_posix()
         ).shape[:2]  # FIX: pretty sure this breaks if self.skip_image_processing
+
+        rgb_camera_params = {"w": file_data["w"], "h": file_data["h"]}
         thermal_camera_params = {"w": w_thermal, "h": h_thermal}
 
         # Calibrate RGB and thermal cameras for transforms.json
-        rgb_thermal_transform = np.identity(4)
+        colmap_calibration_transform = np.identity(4)  # from colmap world space to our calibration world space
+        rgb_thermal_transform = np.identity(4)  # from rgb camera pose to thermal camera pose in calibration world
         if self.calibration_data is not None:
             flir_utils.extract_raws_from_dir(self.calibration_data)
             cal_rgb_dir = f"{self.calibration_data}_raw/rgb"
             cal_thermal_dir = f"{self.calibration_data}_raw/thermal"
             cal_result = calibration_utils.calibrate_rgb_thermal(cal_rgb_dir, cal_thermal_dir)
 
+            # Get intrinsics and distortion coeffs
+            mat_rgb, mat_thermal = cal_result["camera_matrix_rgb"], cal_result["camera_matrix_thermal"]
+            fx_rgb, fy_rgb, cx_rgb, cy_rgb = mat_rgb[0,0], mat_rgb[1,1], mat_rgb[0,2], mat_rgb[1,2]
+            fx_thermal, fy_thermal, cx_thermal, cy_thermal = \
+                mat_thermal[0,0], mat_thermal[1,1], mat_thermal[0,2], mat_thermal[1,2]
+
+            dist_rgb, dist_thermal = cal_result["distortion_coeffs_rgb"], cal_result["distortion_coeffs_thermal"]
+            k1_rgb, k2_rgb, p1_rgb, p2_rgb = dist_rgb
+            k1_thermal, k2_thermal, p1_thermal, p2_thermal = dist_thermal
+
+            scale = (fx_rgb + fy_rgb) / (file_data["fl_x"] + file_data["fl_y"])
+
+            rgb_camera_params["fl_x"] = fx_rgb
+            rgb_camera_params["fl_y"] = fy_rgb
+            rgb_camera_params["cx"] = cx_rgb
+            rgb_camera_params["cy"] = cy_rgb
+            rgb_camera_params["k1"] = k1_rgb
+            rgb_camera_params["k2"] = k2_rgb
+            rgb_camera_params["p1"] = p1_rgb
+            rgb_camera_params["p2"] = p2_rgb
+
+            thermal_camera_params["fl_x"] = fx_thermal
+            thermal_camera_params["fl_y"] = fy_thermal
+            thermal_camera_params["cx"] = cx_thermal
+            thermal_camera_params["cy"] = cy_thermal
+            thermal_camera_params["k1"] = k1_thermal
+            thermal_camera_params["k2"] = k2_thermal
+            thermal_camera_params["p1"] = p1_thermal
+            thermal_camera_params["p2"] = p2_thermal
+
+            # Get extrinsics
+            colmap_calibration_transform[0, 0], colmap_calibration_transform[1, 1], colmap_calibration_transform[2, 2] = scale
             tvec, rmat = cal_result["tvec_relative"], cal_result["rmat_relative"]
             T, R = np.identity(4), np.identity(4)
             T[:3, 3] = tvec
@@ -98,21 +133,24 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         for i, frame in enumerate(file_data["frames"]):
             thermal_frame_name = self._rgb_to_thermal_path(frame["file_path"])
 
-            # Set camera params for RGB frame
-            for param in camera_params:
-                file_data["frames"][i][param] = file_data[param]
-
-            file_data["frames"][i]["is_thermal"] = 0
+            # Set params for thermal frame
             thermal_frame = {
                 "file_path": thermal_frame_name,
-                "transform_matrix": rgb_thermal_transform @ np.array(frame["transform_matrix"]),  # TODO: scaling
+                "transform_matrix":
+                    rgb_thermal_transform @ colmap_calibration_transform @ np.array(frame["transform_matrix"]),
                 "colmap_im_id": frame["colmap_im_id"],  # NOTE: not sure what this field is used for
                 "is_thermal": 1,
             }
-            # Set camera params for thermal frame
             for param in camera_params:
                 thermal_frame[param] = thermal_camera_params[param]
             thermal_frames.append(thermal_frame)
+
+            # Set params for RGB frame
+            file_data["frames"][i]["is_thermal"] = 0
+            for param in camera_params:
+                file_data["frames"][i][param] = rgb_camera_params[param]
+            file_data["frames"][i]["transform_matrix"] =\
+                colmap_calibration_transform @ np.array(frame["transform_matrix"])
 
         file_data["frames"] += thermal_frames
 
