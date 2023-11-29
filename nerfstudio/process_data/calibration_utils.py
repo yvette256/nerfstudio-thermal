@@ -212,7 +212,7 @@ def estimate_intrinsics(image_file_names=[],
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, imgsize, None, None,
                                                            flags=calibration_flags)
     elif intrinsic_calibration_mode == 4:
-        calibration_flags += (cv2.CALIB_FIX_ASPECT_RATIO + cv2.CALIB_FIX_PRINCIPAL_POINT)
+        calibration_flags += cv2.CALIB_FIX_ASPECT_RATIO
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, imgsize, None, None,
                                                            flags=calibration_flags)
 
