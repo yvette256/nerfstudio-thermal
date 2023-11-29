@@ -86,7 +86,11 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             flir_utils.extract_raws_from_dir(self.calibration_data)
             cal_rgb_dir = f"{self.calibration_data}_raw/rgb"
             cal_thermal_dir = f"{self.calibration_data}_raw/thermal"
-            cal_result = calibration_utils.calibrate_rgb_thermal(cal_rgb_dir, cal_thermal_dir)
+            cal_result = calibration_utils.calibrate_rgb_thermal(
+                cal_rgb_dir,
+                cal_thermal_dir,
+                force_radial_distortion_coeff_K3_to_zero=True,
+            )
 
             # Get intrinsics and distortion coeffs
             mat_rgb, mat_thermal = cal_result["camera_matrix_rgb"], cal_result["camera_matrix_thermal"]
