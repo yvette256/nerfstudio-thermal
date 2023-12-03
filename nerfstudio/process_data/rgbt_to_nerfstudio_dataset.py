@@ -87,8 +87,8 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         M_world_colmap = np.identity(4)  # transform from our calibration world space to colmap world space
         M_rgb_thermal = np.identity(4)  # transform from rgb camera pose to thermal camera pose in calibration world
         if self.calibration_data is not None:
-            # TODO: commented for testing, uncomment before committing (if you see this comment I screwed up)
-            # flir_utils.extract_raws_from_dir(self.calibration_data)
+            if not self.skip_image_processing:
+                flir_utils.extract_raws_from_dir(self.calibration_data)
             cal_rgb_dir = f"{self.calibration_data}_raw/rgb"
             cal_thermal_dir = f"{self.calibration_data}_raw/thermal"
             cal_result = calibration_utils.calibrate_rgb_thermal(
