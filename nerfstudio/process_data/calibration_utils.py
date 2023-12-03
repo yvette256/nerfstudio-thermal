@@ -322,6 +322,8 @@ def calibrate_camera(
         if os.path.isfile(full_path):
             if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
                 files_in_folder.append(os.path.join(folder, f))
+    files_in_folder = sorted(files_in_folder)
+    # print(files_in_folder)
     # print(f"Found {len(files_in_folder)} files in target folder")
 
     # image resolution (height, width)
@@ -436,12 +438,6 @@ def calibrate_rgb_thermal(
     t_thermal_rgbs = M_thermal_rgbs[:,:3,3]
     t_thermal_rgb = t_thermal_rgbs.mean(axis=0)
 
-    print("---------------------------")
-    np.set_printoptions(suppress=True)
-    print("t_thermal_rgbs:")
-    print(t_thermal_rgbs)
-    print("")
-
     # Compute "average" relative rotation
     R_rgb_thermal = M_rgb_thermals[:,:3,:3]
     mean_R_rgb_thermal = R_rgb_thermal.mean(axis=0)
@@ -460,6 +456,12 @@ def calibrate_rgb_thermal(
     M_thermal_rgb = np.identity(4)
     M_thermal_rgb[:3,3] = t_thermal_rgb
     M_thermal_rgb[:3,:3] = R_thermal_rgb
+
+    print("---------------------------")
+    np.set_printoptions(suppress=True)
+    print("t_thermal_rgbs:")
+    print(t_thermal_rgbs)
+    print("")
 
     print("---------------------------")
     print(f"Relative rotation:")
