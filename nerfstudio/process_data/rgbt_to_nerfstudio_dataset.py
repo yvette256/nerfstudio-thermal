@@ -89,6 +89,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             cal_result = calibration_utils.calibrate_rgb_thermal(
                 cal_rgb_dir,
                 cal_thermal_dir,
+                intrinsic_calibration_mode=4,
                 force_radial_distortion_coeff_K3_to_zero=True,
             )
 

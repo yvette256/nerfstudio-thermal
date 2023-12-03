@@ -218,8 +218,8 @@ def estimate_intrinsics(image_file_names=[],
 
     # initial guess of camera matrix (the specific values of the focal length are not important, but their ratio will be kept)
     else:
-        mtx = np.array([[100.0, 0., imgsize[0] / 2.0],
-                        [0., 100.0, imgsize[1] / 2.0],
+        mtx = np.array([[1000.0, 0., imgsize[0] / 2.0],
+                        [0., 1000.0, imgsize[1] / 2.0],
                         [0., 0., 1.]], dtype=np.float32)
 
         if intrinsic_calibration_mode == 1:
@@ -309,6 +309,7 @@ def evaluate_intrinsics(image_file_names=[],
 
 def calibrate_camera(
         folder,
+        intrinsic_calibration_mode=2,
         force_tangential_distortion_coeffs_to_zero=False,
         force_radial_distortion_coeff_K1_K2_to_zero=False,
         force_radial_distortion_coeff_K3_to_zero=False,
@@ -337,7 +338,7 @@ def calibrate_camera(
         image_file_names=files_in_folder,
         marker_coordinates=marker_coordinates,
         imgsize=imgsize,
-        intrinsic_calibration_mode=2,
+        intrinsic_calibration_mode=intrinsic_calibration_mode,
         force_tangential_distortion_coeffs_to_zero=force_tangential_distortion_coeffs_to_zero,
         force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,
         force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero
@@ -384,6 +385,7 @@ def calibrate_camera(
 def calibrate_rgb_thermal(
         rgb_folder,
         thermal_folder,
+        intrinsic_calibration_mode=4,
         force_tangential_distortion_coeffs_to_zero=False,
         force_radial_distortion_coeff_K1_K2_to_zero=False,
         force_radial_distortion_coeff_K3_to_zero=False,
@@ -395,12 +397,14 @@ def calibrate_rgb_thermal(
     """
     result_rgb = calibrate_camera(
         rgb_folder,
+        intrinsic_calibration_mode=intrinsic_calibration_mode,
         force_tangential_distortion_coeffs_to_zero=force_tangential_distortion_coeffs_to_zero,
         force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,
         force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero,
     )
     result_thermal = calibrate_camera(
         thermal_folder,
+        intrinsic_calibration_mode=intrinsic_calibration_mode,
         force_tangential_distortion_coeffs_to_zero=force_tangential_distortion_coeffs_to_zero,
         force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,
         force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero,
