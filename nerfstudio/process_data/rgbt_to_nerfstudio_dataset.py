@@ -95,7 +95,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
                 cal_rgb_dir,
                 cal_thermal_dir,
                 intrinsic_calibration_mode=4,
-                force_radial_distortion_coeff_K3_to_zero=True,
+                force_radial_distortion_coeff_K3_to_zero=False,
             )
 
             # Get intrinsics and distortion coeffs
@@ -138,14 +138,12 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             M2 = np.array(frame2["transform_matrix"])
             colmap_distance = np.linalg.norm((M1 - M2) @ np.array([0., 0., 0., 1.]))
             world_colmap_scale = colmap_distance / world_distance
+            print(f"world_colmap_scale: {world_colmap_scale}")
             M_world_colmap[0,0], M_world_colmap[1,1], M_world_colmap[2,2] = (world_colmap_scale for _ in range(3))
             M_colmap_world[0,0], M_colmap_world[1,1], M_colmap_world[2,2] = (1 / world_colmap_scale for _ in range(3))
 
-            tvec, rmat = cal_result["tvec_relative"], cal_result["rmat_relative"]
-            T, R = np.identity(4), np.identity(4)
-            T[:3, 3] = tvec.squeeze()
-            R[:3, :3] = rmat
-            M_rgb_thermal = T @ R @ M_rgb_thermal
+            M_relative = cal_result["relative_transform"]
+            M_rgb_thermal = M_relative @ M_rgb_thermal
 
         camera_params = thermal_camera_params.keys()  # camera params to set as per-frame rather than fixed
 
@@ -157,8 +155,10 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             # Set params for thermal frame
             thermal_frame = {
                 "file_path": thermal_frame_name,
+                # "transform_matrix":
+                #     (M_world_colmap @ M_rgb_thermal @ M_colmap_world @ np.array(frame["transform_matrix"])).tolist(),
                 "transform_matrix":
-                    (M_world_colmap @ M_rgb_thermal @ M_colmap_world @ np.array(frame["transform_matrix"])).tolist(),
+                    (np.array(frame["transform_matrix"]) @ M_world_colmap @ np.linalg.inv(M_rgb_thermal) @ M_colmap_world).tolist(),
                 "colmap_im_id": frame["colmap_im_id"],  # NOTE: not sure what this field is used for
                 "is_thermal": 1,
             }
