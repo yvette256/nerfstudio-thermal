@@ -64,22 +64,17 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False):
     # Change thresholds
     params.filterByColor = True
     params.minThreshold = 128
-    # params.minThreshold = 40
 
     # Filter by Area.
     params.filterByArea = True
-    # params.filterByArea = False
-    # params.minArea = 50
-    params.minArea = 200
+    params.minArea = 300
 
     # Filter by Circularity
     params.filterByCircularity = False
-    # params.minCircularity = 0.785
-    params.minCircularity = 0.785
+    params.minCircularity = 0.8
 
     # Filter by Convexity
     params.filterByConvexity = True
-    # params.minConvexity = 0.87
     params.minConvexity = 0.80
 
     # Filter by Inertia
@@ -105,6 +100,7 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False):
     #  In the future, might want to lift this restriction and just match images for which we
     #  find calibration pattern.
     assert found_dots
+    assert len(keypoints) == num_circles[0] * num_circles[1]
 
     if show_preview:
         # Drawing the keypoints
@@ -417,50 +413,51 @@ def calibrate_rgb_thermal(
     rvecs_thermal = result_thermal["rvecs"]
 
     # Get relative transforms between rgb and thermal camera per image
-    M_rgb_thermals = []
-    M_thermal_rgbs = []
+    R_rgb_thermals = []
+    R_thermal_rgbs = []
     for i in range(len(rvecs_rgb)):
-        T_rgb, T_thermal, R_rgb, R_thermal = (np.identity(4) for _ in range(4))
-        T_rgb[:3,3] = tvecs_rgb[i].squeeze()
-        T_thermal[:3,3] = tvecs_thermal[i].squeeze()
+        R_rgb, R_thermal = (np.identity(3) for _ in range(2))
         R_rgb[:3,:3], _ = cv2.Rodrigues(rvecs_rgb[i])
         R_thermal[:3,:3], _ = cv2.Rodrigues(rvecs_thermal[i])
 
-        M_rgb_thermals.append(T_thermal @ R_thermal @ np.linalg.inv(R_rgb) @ np.linalg.inv(T_rgb))
-        M_thermal_rgbs.append(T_rgb @ R_rgb @ np.linalg.inv(R_thermal) @ np.linalg.inv(T_thermal))
-    M_rgb_thermals = np.array(M_rgb_thermals)
-    M_thermal_rgbs = np.array(M_thermal_rgbs)
-
-    # Compute "average" relative translation
-    t_rgb_thermals = M_rgb_thermals[:,:3,3]
-    t_rgb_thermal = t_rgb_thermals.mean(axis=0)
-
-    t_thermal_rgbs = M_thermal_rgbs[:,:3,3]
-    t_thermal_rgb = t_thermal_rgbs.mean(axis=0)
+        R_rgb_thermals.append(R_thermal @ np.linalg.inv(R_rgb))
+        R_thermal_rgbs.append(R_rgb @ np.linalg.inv(R_thermal))
+    R_rgb_thermals = np.array(R_rgb_thermals)
+    R_thermal_rgbs = np.array(R_thermal_rgbs)
 
     # Compute "average" relative rotation
-    R_rgb_thermal = M_rgb_thermals[:,:3,:3]
-    mean_R_rgb_thermal = R_rgb_thermal.mean(axis=0)
+    mean_R_rgb_thermal = R_rgb_thermals.mean(axis=0)
     U, S, Vh = np.linalg.svd(mean_R_rgb_thermal)
     R_rgb_thermal = U @ Vh
 
-    R_thermal_rgb = M_thermal_rgbs[:,:3,:3]
-    mean_R_thermal_rgb = R_thermal_rgb.mean(axis=0)
+    mean_R_thermal_rgb = R_thermal_rgbs.mean(axis=0)
     U, S, Vh = np.linalg.svd(mean_R_thermal_rgb)
     R_thermal_rgb = U @ Vh
 
+    # Compute "average" relative translation
+    t_rgb_thermals = []
+    t_thermal_rgbs= []
+    for i in range(len(rvecs_rgb)):
+        t_rgb_thermals.append(tvecs_thermal[i] - R_rgb_thermals[i] @ tvecs_rgb[i])
+        t_thermal_rgbs.append(tvecs_rgb[i] - R_thermal_rgbs[i] @ tvecs_thermal[i])
+    t_rgb_thermals = np.array(t_rgb_thermals)
+    t_thermal_rgbs = np.array(t_thermal_rgbs)
+    t_rgb_thermal = t_rgb_thermals.mean(axis=0)
+    t_thermal_rgb = t_thermal_rgbs.mean(axis=0)
+
+    # Build 4x4 transform matrices
     M_rgb_thermal = np.identity(4)
-    M_rgb_thermal[:3,3] = t_rgb_thermal
+    M_rgb_thermal[:3,3] = t_rgb_thermal.squeeze()
     M_rgb_thermal[:3,:3] = R_rgb_thermal
 
     M_thermal_rgb = np.identity(4)
-    M_thermal_rgb[:3,3] = t_thermal_rgb
+    M_thermal_rgb[:3,3] = t_thermal_rgb.squeeze()
     M_thermal_rgb[:3,:3] = R_thermal_rgb
 
     print("---------------------------")
     np.set_printoptions(suppress=True)
     print("t_thermal_rgbs:")
-    print(t_thermal_rgbs)
+    print(t_thermal_rgbs.squeeze())
     print("")
 
     print("---------------------------")
@@ -469,7 +466,7 @@ def calibrate_rgb_thermal(
     print("")
 
     print("Relative translation:")
-    print(t_rgb_thermal)
+    print(t_rgb_thermal.squeeze())
     print("")
 
     # print("Relative transformation:")
@@ -477,7 +474,6 @@ def calibrate_rgb_thermal(
 
     print("Transforms (1, 0, 0) to:")
     print(M_rgb_thermal @ np.array([1, 0, 0, 1]))
-    print("---------------------------")
 
     print("---------------------------")
     print(f"Relative rotation:")
@@ -485,7 +481,7 @@ def calibrate_rgb_thermal(
     print("")
 
     print("Relative translation:")
-    print(t_thermal_rgb)
+    print(t_thermal_rgb.squeeze())
     print("")
 
     # print("Relative transformation:")
