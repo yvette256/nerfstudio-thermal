@@ -80,7 +80,7 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False):
     # Filter by Convexity
     params.filterByConvexity = True
     # params.minConvexity = 0.87
-    params.minConvexity = 0.95
+    params.minConvexity = 0.80
 
     # Filter by Inertia
     params.filterByInertia = False
@@ -95,20 +95,18 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False):
     # found_dots, centers = cv2.findCirclesGrid(img, patternSize=num_circles,
     #                                           blobDetector=detector, flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
 
-    # found_dots, centers = cv2.findCirclesGrid(  img,
-    #                                             patternSize=num_circles,
-    #                                             blobDetector=detector,
-    #                                             flags = (cv2.CALIB_CB_ASYMMETRIC_GRID + cv2.CALIB_CB_CLUSTERING))
     found_dots, centers = cv2.findCirclesGrid(img,
                                               patternSize=num_circles,
                                               blobDetector=detector,
                                               flags=cv2.CALIB_CB_ASYMMETRIC_GRID + cv2.CALIB_CB_CLUSTERING)
-    print(f'found_dots: {found_dots}')
+    # print(f"detected {np.shape(keypoints)} keypoints / found_dots: {found_dots}")
+
+    # NOTE: For now, assert that we find calibration pattern for all our calibration images.
+    #  In the future, might want to lift this restriction and just match images for which we
+    #  find calibration pattern.
+    assert found_dots
 
     if show_preview:
-
-        print(f"detected {np.shape(keypoints)} keypoints")
-
         # Drawing the keypoints
         captured_img = cv2.drawChessboardCorners(captured_img, num_circles, centers, found_dots)
         img_gray = cv2.drawKeypoints(img_gray,
@@ -181,7 +179,7 @@ def estimate_intrinsics(image_file_names=[],
         img = cv2.imread(image_file_names[k])
 
         # detect 2D circle centers
-        (corners, found_dots) = circle_detect(img.copy(), show_preview=True)
+        (corners, found_dots) = circle_detect(img.copy(), show_preview=False)
 
         if found_dots == True:
             # add pairs of reference points and detected 2D circle centers to lists
@@ -314,6 +312,7 @@ def calibrate_camera(
         force_radial_distortion_coeff_K1_K2_to_zero=False,
         force_radial_distortion_coeff_K3_to_zero=False,
         save_results=False,
+        validate=False,
 ):
     # get all filenames in this folder
     # files_in_folder_ = os.listdir(folder)
@@ -321,13 +320,12 @@ def calibrate_camera(
     for f in os.listdir(folder):
         full_path = os.path.join(folder, f)
         if os.path.isfile(full_path):
-            if f != '.DS_Store':
+            if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
                 files_in_folder.append(os.path.join(folder, f))
-    print(f"Found {len(files_in_folder)} files in target folder")
-    print("")
+    # print(f"Found {len(files_in_folder)} files in target folder")
 
     # image resolution (height, width)
-    imgsize = cv2.imread(files_in_folder).shape[:2]
+    imgsize = cv2.imread(files_in_folder[0]).shape[:2]
 
     # 3D coordinates of the circle centers
     #   Note: if the 3 circles of the calibration markers point down in the images, then switch the flag to False
@@ -344,6 +342,7 @@ def calibrate_camera(
         force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero
     )
 
+    print("---------------------------")
     print("Camera matrix:")
     print(result["camera_matrix"])
     print(" ")
@@ -352,20 +351,20 @@ def calibrate_camera(
     print(result["distortion_coeffs"])
     print(" ")
 
-    print("Train RMSE:")
-    print(result["rmse"])
+    print(f"Train RMSE: {result['rmse']}")
 
-    validation_error = evaluate_intrinsics(
-        image_file_names=files_in_folder,
-        marker_coordinates=marker_coordinates,
-        camera_matrix=result["camera_matrix"],
-        distortion_coefficients=result["distortion_coeffs"],
-        imgsize=imgsize
-    )
+    if validate:
+        validation_error = evaluate_intrinsics(
+            image_file_names=files_in_folder,
+            marker_coordinates=marker_coordinates,
+            camera_matrix=result["camera_matrix"],
+            distortion_coefficients=result["distortion_coeffs"],
+            imgsize=imgsize
+        )
 
-    print(" ")
-    print("Validation RMSE:")
-    print(validation_error)
+        print(" ")
+        print("Validation RMSE:")
+        print(validation_error)
 
     if save_results:  # save to file
         mtx_undistorted, roi_undistorted = cv2.getOptimalNewCameraMatrix(
@@ -373,9 +372,9 @@ def calibrate_camera(
         )
         focal_length = (mtx_undistorted[0,0] + mtx_undistorted[1,1]) / 2.0
 
-        data = {'camera_matrix': np.asarray(result["camera_matrix"]).tolist(),
-                'dist_coeff': np.asarray(result["distortion_coeffs"]).tolist(),
-                'focal_length': float(focal_length)}
+        data = {"camera_matrix": np.asarray(result["camera_matrix"]).tolist(),
+                "dist_coeff": np.asarray(result["distortion_coeffs"]).tolist(),
+                "focal_length": float(focal_length)}
         with open("calibration.yaml", "w") as f:
             yaml.dump(data, f)
 
@@ -419,14 +418,26 @@ def calibrate_rgb_thermal(
     rvecs_rgb = result_rgb["rvecs"]
     rvecs_thermal = result_thermal["rvecs"]
     rmats_relative = []
+
     for i in range(len(rvecs_rgb)):
-        rmat_rgb = cv2.Rodrigues(rvecs_rgb[i])
-        rmat_thermal = cv2.Rodrigues(rvecs_thermal[i])
-        rmats_relative = rmat_thermal @ rmat_rgb.inv()
+        rmat_rgb, _ = cv2.Rodrigues(rvecs_rgb[i])
+        rmat_thermal, _ = cv2.Rodrigues(rvecs_thermal[i])
+        rmats_relative.append(rmat_thermal @ np.linalg.inv(rmat_rgb))
     # Compute "average" relative rotation
     mean_rmat_relative = sum(rmats_relative) / len(rvecs_rgb)
     U, S, Vh = np.linalg.svd(mean_rmat_relative)
     rmat_relative = U @ Vh
+
+    print("---------------------------")
+    print(f"Relative rotation:")
+    print(rmat_relative)
+    print(f"Transforms (1, 0, 0) to:")
+    print(rmat_relative @ np.array([1, 0, 0]))
+    print("")
+
+    print("Relative translation:")
+    print(tvec_relative.T)
+    print("---------------------------")
 
     result = {
         "camera_matrix_rgb": result_rgb["camera_matrix"],
