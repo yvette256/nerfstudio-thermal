@@ -86,6 +86,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         M_colmap_world = np.identity(4)  # transform from colmap world space to our calibration world space
         M_world_colmap = np.identity(4)  # transform from our calibration world space to colmap world space
         M_rgb_thermal = np.identity(4)  # transform from rgb camera pose to thermal camera pose in calibration world
+        M_thermal_rgb = np.identity(4)
         if self.calibration_data is not None:
             if not self.skip_image_processing:
                 flir_utils.extract_raws_from_dir(self.calibration_data)
@@ -95,7 +96,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
                 cal_rgb_dir,
                 cal_thermal_dir,
                 intrinsic_calibration_mode=4,
-                force_radial_distortion_coeff_K3_to_zero=False,
+                force_radial_distortion_coeff_K3_to_zero=True,
             )
 
             # Get intrinsics and distortion coeffs
@@ -142,8 +143,8 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             M_world_colmap[0,0], M_world_colmap[1,1], M_world_colmap[2,2] = (world_colmap_scale for _ in range(3))
             M_colmap_world[0,0], M_colmap_world[1,1], M_colmap_world[2,2] = (1 / world_colmap_scale for _ in range(3))
 
-            M_relative = cal_result["relative_transform"]
-            M_rgb_thermal = M_relative @ M_rgb_thermal
+            M_thermal_rgb = cal_result["thermal_rgb_transform"]
+            # M_rgb_thermal = cal_result["rgb_thermal_transform"]
 
         camera_params = thermal_camera_params.keys()  # camera params to set as per-frame rather than fixed
 
@@ -158,7 +159,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
                 # "transform_matrix":
                 #     (M_world_colmap @ M_rgb_thermal @ M_colmap_world @ np.array(frame["transform_matrix"])).tolist(),
                 "transform_matrix":
-                    (np.array(frame["transform_matrix"]) @ M_world_colmap @ np.linalg.inv(M_rgb_thermal) @ M_colmap_world).tolist(),
+                    (np.array(frame["transform_matrix"]) @ M_world_colmap @ M_thermal_rgb @ M_colmap_world).tolist(),
                 "colmap_im_id": frame["colmap_im_id"],  # NOTE: not sure what this field is used for
                 "is_thermal": 1,
             }

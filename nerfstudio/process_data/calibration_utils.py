@@ -415,44 +415,82 @@ def calibrate_rgb_thermal(
     rvecs_thermal = result_thermal["rvecs"]
 
     # Get relative transforms between rgb and thermal camera per image
-    M_relatives = []
+    M_rgb_thermals = []
+    M_thermal_rgbs = []
     for i in range(len(rvecs_rgb)):
         T_rgb, T_thermal, R_rgb, R_thermal = (np.identity(4) for _ in range(4))
         T_rgb[:3,3] = tvecs_rgb[i].squeeze()
         T_thermal[:3,3] = tvecs_thermal[i].squeeze()
         R_rgb[:3,:3], _ = cv2.Rodrigues(rvecs_rgb[i])
         R_thermal[:3,:3], _ = cv2.Rodrigues(rvecs_thermal[i])
-        M_relatives.append(T_thermal @ R_thermal @ np.linalg.inv(R_rgb) @ np.linalg.inv(T_rgb))
-    M_relatives = np.array(M_relatives)
+
+        M_rgb_thermals.append(T_thermal @ R_thermal @ np.linalg.inv(R_rgb) @ np.linalg.inv(T_rgb))
+        M_thermal_rgbs.append(T_rgb @ R_rgb @ np.linalg.inv(R_thermal) @ np.linalg.inv(T_thermal))
+    M_rgb_thermals = np.array(M_rgb_thermals)
+    M_thermal_rgbs = np.array(M_thermal_rgbs)
 
     # Compute "average" relative translation
-    t_relatives = M_relatives[:,:3,3]
-    t_relative = t_relatives.mean(axis=0)
+    t_rgb_thermals = M_rgb_thermals[:,:3,3]
+    t_rgb_thermal = t_rgb_thermals.mean(axis=0)
+
+    t_thermal_rgbs = M_thermal_rgbs[:,:3,3]
+    t_thermal_rgb = t_thermal_rgbs.mean(axis=0)
+
+    print("---------------------------")
+    np.set_printoptions(suppress=True)
+    print("t_thermal_rgbs:")
+    print(t_thermal_rgbs)
+    print("")
 
     # Compute "average" relative rotation
-    R_relatives = M_relatives[:,:3,:3]
-    mean_R_relative = R_relatives.mean(axis=0)
-    U, S, Vh = np.linalg.svd(mean_R_relative)
-    R_relative = U @ Vh
+    R_rgb_thermal = M_rgb_thermals[:,:3,:3]
+    mean_R_rgb_thermal = R_rgb_thermal.mean(axis=0)
+    U, S, Vh = np.linalg.svd(mean_R_rgb_thermal)
+    R_rgb_thermal = U @ Vh
 
-    M_relative = np.identity(4)
-    M_relative[:3,3] = t_relative
-    M_relative[:3,:3] = R_relative
+    R_thermal_rgb = M_thermal_rgbs[:,:3,:3]
+    mean_R_thermal_rgb = R_thermal_rgb.mean(axis=0)
+    U, S, Vh = np.linalg.svd(mean_R_thermal_rgb)
+    R_thermal_rgb = U @ Vh
+
+    M_rgb_thermal = np.identity(4)
+    M_rgb_thermal[:3,3] = t_rgb_thermal
+    M_rgb_thermal[:3,:3] = R_rgb_thermal
+
+    M_thermal_rgb = np.identity(4)
+    M_thermal_rgb[:3,3] = t_thermal_rgb
+    M_thermal_rgb[:3,:3] = R_thermal_rgb
 
     print("---------------------------")
     print(f"Relative rotation:")
-    print(R_relative)
+    print(R_rgb_thermal)
     print("")
 
     print("Relative translation:")
-    print(t_relative)
+    print(t_rgb_thermal)
     print("")
 
-    print("Relative transformation:")
-    print(M_relative)
+    # print("Relative transformation:")
+    # print(M_rgb_thermal)
 
     print("Transforms (1, 0, 0) to:")
-    print(M_relative @ np.array([1, 0, 0, 1]))
+    print(M_rgb_thermal @ np.array([1, 0, 0, 1]))
+    print("---------------------------")
+
+    print("---------------------------")
+    print(f"Relative rotation:")
+    print(R_thermal_rgb)
+    print("")
+
+    print("Relative translation:")
+    print(t_thermal_rgb)
+    print("")
+
+    # print("Relative transformation:")
+    # print(M_thermal_rgb)
+
+    print("Transforms (1, 0, 0) to:")
+    print(M_thermal_rgb @ np.array([1, 0, 0, 1]))
     print("---------------------------")
 
     result = {
@@ -460,7 +498,8 @@ def calibrate_rgb_thermal(
         "camera_matrix_thermal": result_thermal["camera_matrix"],
         "distortion_coeffs_rgb": result_rgb["distortion_coeffs"],
         "distortion_coeffs_thermal": result_thermal["distortion_coeffs"],
-        "relative_transform": M_relative,
+        "rgb_thermal_transform": M_rgb_thermal,
+        "thermal_rgb_transform": M_thermal_rgb,
     }
     return result
 
