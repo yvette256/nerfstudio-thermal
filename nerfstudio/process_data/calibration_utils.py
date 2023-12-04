@@ -502,3 +502,139 @@ def calibrate_rgb_thermal(
     }
     return result
 
+
+def calibrate_rgb_thermal(
+        rgb_folder,
+        thermal_folder,
+        intrinsic_calibration_mode=2,
+        force_tangential_distortion_coeffs_to_zero=False,
+        force_radial_distortion_coeff_K1_K2_to_zero=False,
+        force_radial_distortion_coeff_K3_to_zero=True,
+):
+    # get all filenames in this folder
+    # files_in_folder_ = os.listdir(folder)
+    rgb_files_in_folder = []
+    for f in os.listdir(rgb_folder):
+        full_path = os.path.join(rgb_folder, f)
+        if os.path.isfile(full_path):
+            if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
+                rgb_files_in_folder.append(os.path.join(rgb_folder, f))
+    rgb_files_in_folder = sorted(rgb_files_in_folder)
+    # print(files_in_folder)
+    # print(f"Found {len(files_in_folder)} files in target folder")
+
+    # image resolution (height, width)
+    imgsize = cv2.imread(rgb_files_in_folder[0]).shape[:2]
+
+    thermal_files_in_folder = []
+    for f in os.listdir(thermal_folder):
+        full_path = os.path.join(thermal_folder, f)
+        if os.path.isfile(full_path):
+            if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
+                thermal_files_in_folder.append(os.path.join(thermal_folder, f))
+    thermal_files_in_folder = sorted(thermal_files_in_folder)
+
+    # 3D coordinates of the circle centers
+    #   Note: if the 3 circles of the calibration markers point down in the images, then switch the flag to False
+    marker_coordinates = get_calibration_target_circle_centers()
+
+    # run intrinsic calibration
+    #####################################################################
+    # 1. find markers in images
+
+    # Arrays to store object points and image points from all the images.
+    objpoints = []  # 3d point in real world space
+    rgb_imgpoints = []  # 2d points in image plane.
+    thermal_imgpoints = []  # 2d points in image plane.
+
+    for k in range(len(rgb_files_in_folder)):
+        # load image
+        rgb_img = cv2.imread(rgb_files_in_folder[k])
+        thermal_img = cv2.imread(thermal_files_in_folder[k])
+
+        # detect 2D circle centers
+        (rgb_corners, rgb_found_dots) = circle_detect(rgb_img.copy(), show_preview=False)
+        (thermal_corners, thermal_found_dots) = circle_detect(thermal_img.copy(), show_preview=False)
+
+        if rgb_found_dots and thermal_found_dots:
+            # add pairs of reference points and detected 2D circle centers to lists
+            objpoints.append(marker_coordinates)
+            rgb_imgpoints.append(rgb_corners)
+            thermal_imgpoints.append(thermal_corners)
+
+    #####################################################################
+    # 2. run OpenCV's calibration
+
+    # these flags are the options for the calibration
+    calibration_flags = 0
+
+    # force tangential distortion to be 0
+    if force_tangential_distortion_coeffs_to_zero:
+        calibration_flags += cv2.CALIB_ZERO_TANGENT_DIST
+
+    # force radial coefficient K3 to be 0
+    if force_radial_distortion_coeff_K3_to_zero:
+        calibration_flags += cv2.CALIB_FIX_K3
+
+    # force radial coefficients K1 and K2 to be 0
+    if force_radial_distortion_coeff_K1_K2_to_zero:
+        calibration_flags += cv2.CALIB_FIX_K1 + cv2.CALIB_FIX_K2
+
+    # initial guess
+    result_rgb = calibrate_camera(
+        rgb_folder,
+        intrinsic_calibration_mode=intrinsic_calibration_mode,
+        force_tangential_distortion_coeffs_to_zero=force_tangential_distortion_coeffs_to_zero,
+        force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,
+        force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero,
+    )
+    result_thermal = calibrate_camera(
+        thermal_folder,
+        intrinsic_calibration_mode=intrinsic_calibration_mode,
+        force_tangential_distortion_coeffs_to_zero=force_tangential_distortion_coeffs_to_zero,
+        force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,
+        force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero,
+    )
+
+    # with initial guess
+    calibration_flags += cv2.CALIB_FIX_INTRINSIC + cv2.CALIB_FIX_ASPECT_RATIO + cv2.CALIB_USE_INTRINSIC_GUESS
+    ret, mtx_rgb, dist_rgb, mtx_thermal, dist_thermal, R, T, E, F = \
+        cv2.stereoCalibrate(objpoints, rgb_imgpoints, thermal_imgpoints,
+                            result_rgb["camera_matrix"], result_rgb["distortion_coeffs"],
+                            result_thermal["camera_matrix"], result_thermal["distortion_coeffs"],
+                            imgsize, flags=calibration_flags)
+
+    #####################################################################
+    # 4. prepare results
+
+    M = np.identity(4)
+    M[:3,3] = T.squeeze()
+    M[:3,:3] = R
+
+    result = {
+        "camera_matrix_rgb": mtx_rgb,
+        "camera_matrix_thermal": mtx_thermal,
+        "distortion_coeffs_rgb": dist_rgb,
+        "distortion_coeffs_thermal": dist_thermal,
+        "rgb_thermal_transform": M,
+        "thermal_rgb_transform": np.linalg.inv(M),
+    }
+
+    np.set_printoptions(suppress=True)
+    print("---------------------------")
+    print(f"Relative rotation:")
+    print(R)
+
+    print("")
+    print("Relative translation:")
+    print(T.squeeze())
+
+    print("")
+    print("RMSE:")
+    print(ret)
+
+    print("---------------------------")
+    np.set_printoptions(suppress=False)
+
+    return result
+
