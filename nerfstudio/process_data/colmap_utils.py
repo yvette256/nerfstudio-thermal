@@ -94,6 +94,8 @@ def run_colmap(
     verbose: bool = False,
     matching_method: Literal["vocab_tree", "exhaustive", "sequential"] = "vocab_tree",
     colmap_cmd: str = "colmap",
+    camera_matrix: Optional[np.ndarray] = None,
+    dist_coeffs: Optional[np.ndarray] = None,
 ) -> None:
     """Runs COLMAP on the images.
 
@@ -106,6 +108,8 @@ def run_colmap(
         verbose: If True, logs the output of the command.
         matching_method: Matching method to use.
         colmap_cmd: Path to the COLMAP executable.
+        camera_matrix: Intrinsic camera matrix to fix.
+        dist_coeffs: Distortion coefficients (k1, k2, p1, p2, _) to fix.
     """
 
     colmap_version = get_colmap_version(colmap_cmd)
@@ -124,6 +128,12 @@ def run_colmap(
     ]
     if camera_mask_path is not None:
         feature_extractor_cmd.append(f"--ImageReader.camera_mask_path {camera_mask_path}")
+    if camera_matrix is not None:
+        assert dist_coeffs is not None
+        fx, fy, cx, cy = camera_matrix[0, 0], camera_matrix[1, 1], camera_matrix[0, 2], camera_matrix[1, 2]
+        k1, k2, p1, p2, k3 = dist_coeffs.squeeze()
+        camera_params = ",".join(map(str, [fx, fy, cx, cy, k1, k2, p1, p2]))
+        feature_extractor_cmd.append(f'--ImageReader.camera_params "{camera_params}"')
     feature_extractor_cmd = " ".join(feature_extractor_cmd)
     with status(msg="[bold yellow]Running COLMAP feature extractor...", spinner="moon", verbose=verbose):
         run_command(feature_extractor_cmd, verbose=verbose)
@@ -153,6 +163,10 @@ def run_colmap(
         f"--image_path {image_dir}",
         f"--output_path {sparse_dir}",
     ]
+    if camera_matrix is not None:
+        mapper_cmd.append("--Mapper.ba_refine_focal_length 0")
+        mapper_cmd.append("--Mapper.ba_refine_extra_params 0")
+        mapper_cmd.append("--Mapper.ba_refine_principal_point 0"),
     if colmap_version >= 3.7:
         mapper_cmd.append("--Mapper.ba_global_function_tolerance 1e-6")
 
@@ -172,6 +186,11 @@ def run_colmap(
             f"--output_path {sparse_dir}/0",
             "--BundleAdjustment.refine_principal_point 1",
         ]
+        if camera_matrix is not None:
+            del bundle_adjuster_cmd[-1]
+            bundle_adjuster_cmd.append("--BundleAdjustment.refine_principal_point 0"),
+            bundle_adjuster_cmd.append("--BundleAdjustment.refine_focal_length 0"),
+            bundle_adjuster_cmd.append("--BundleAdjustment.refine_extra_params 0"),
         run_command(" ".join(bundle_adjuster_cmd), verbose=verbose)
     CONSOLE.log("[bold green]:tada: Done refining intrinsics.")
 

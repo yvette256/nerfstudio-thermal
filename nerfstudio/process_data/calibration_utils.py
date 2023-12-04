@@ -454,42 +454,43 @@ def calibrate_rgb_thermal(
     M_thermal_rgb[:3,3] = t_thermal_rgb.squeeze()
     M_thermal_rgb[:3,:3] = R_thermal_rgb
 
-    print("---------------------------")
     np.set_printoptions(suppress=True)
-    print("t_thermal_rgbs:")
-    print(t_thermal_rgbs.squeeze())
-    print("")
+    print("---------------------------")
+    # print("t_thermal_rgbs:")
+    # print(t_thermal_rgbs.squeeze())
 
     print("---------------------------")
     print(f"Relative rotation:")
     print(R_rgb_thermal)
-    print("")
 
+    print("")
     print("Relative translation:")
     print(t_rgb_thermal.squeeze())
-    print("")
 
+    # print("")
     # print("Relative transformation:")
     # print(M_rgb_thermal)
 
-    print("Transforms (1, 0, 0) to:")
-    print(M_rgb_thermal @ np.array([1, 0, 0, 1]))
+    # print("Transforms (1, 0, 0) to:")
+    # print(M_rgb_thermal @ np.array([1, 0, 0, 1]))
 
     print("---------------------------")
     print(f"Relative rotation:")
     print(R_thermal_rgb)
-    print("")
 
+    print("")
     print("Relative translation:")
     print(t_thermal_rgb.squeeze())
-    print("")
 
+    # print("")
     # print("Relative transformation:")
     # print(M_thermal_rgb)
 
-    print("Transforms (1, 0, 0) to:")
-    print(M_thermal_rgb @ np.array([1, 0, 0, 1]))
+    # print("Transforms (1, 0, 0) to:")
+    # print(M_thermal_rgb @ np.array([1, 0, 0, 1]))
+
     print("---------------------------")
+    np.set_printoptions(suppress=False)
 
     result = {
         "camera_matrix_rgb": result_rgb["camera_matrix"],
