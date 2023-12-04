@@ -278,7 +278,7 @@ def raw_nps_from_flir(img_path, verbose=False):
     return rgb_np, thermal_np
 
 
-def extract_raws_from_dir(in_path, out_path=None):
+def extract_raws_from_dir(in_path, out_path=None, upsample_thermal=False):
     if out_path is None:
         out_path = f'{in_path}_raw'
     rgb_dir = os.path.join(out_path, 'rgb')
@@ -287,18 +287,21 @@ def extract_raws_from_dir(in_path, out_path=None):
         if not os.path.exists(path):
             os.makedirs(path)
 
-    for i, f in enumerate(os.listdir(in_path)):
-        with status(f"[bold yellow]Extracting raw RGB/T from image {i}."):
+    for i, f in enumerate(
+            [f for f in os.listdir(in_path)
+             if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif"))]
+    ):
+        with status(f"[bold yellow]Extracting{' and upsampling' if upsample_thermal else ''} raw RGB/T from image {i}."):
             path = os.path.join(in_path, f)
             basename = os.path.splitext(f)[0]
             rgb_np, thermal_np = raw_nps_from_flir(path, verbose=False)
 
             img_visual = Image.fromarray(rgb_np)
 
-            # TODO: Change NeRF model to handle images of different camera resolutions.
-            # h, w, _ = rgb_np.shape
+            h, w, _ = rgb_np.shape
             thermal_normalized = (thermal_np - np.amin(thermal_np)) / (np.amax(thermal_np) - np.amin(thermal_np))
-            # thermal_normalized = skimage.transform.resize(thermal_normalized, (h, w))
+            if upsample_thermal:
+                thermal_normalized = skimage.transform.resize(thermal_normalized, (h, w))
             # img_thermal = Image.fromarray(np.uint8(cm.inferno(thermal_normalized) * 255))
             img_thermal = Image.fromarray(np.uint8(thermal_normalized * 255))
 

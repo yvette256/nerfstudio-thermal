@@ -100,7 +100,7 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False):
     #  In the future, might want to lift this restriction and just match images for which we
     #  find calibration pattern.
     assert found_dots
-    assert len(keypoints) == num_circles[0] * num_circles[1]
+    # assert len(keypoints) == num_circles[0] * num_circles[1]
 
     if show_preview:
         # Drawing the keypoints
@@ -149,7 +149,8 @@ def estimate_intrinsics(image_file_names=[],
                         intrinsic_calibration_mode=2,
                         force_tangential_distortion_coeffs_to_zero=True,
                         force_radial_distortion_coeff_K1_K2_to_zero=False,
-                        force_radial_distortion_coeff_K3_to_zero=True
+                        force_radial_distortion_coeff_K3_to_zero=True,
+                        upsample_size=None,
                         ):
     """ Given a set of image filenames, detect marker coordinates and estimate intrinsic camera parameters.
 
@@ -161,6 +162,11 @@ def estimate_intrinsics(image_file_names=[],
           mode 3: fix principle point to image center and fix focal length of x and y to be the same
           mode 4: fix focal length of x and y to be the same but don't use initial guess
     """
+    upsample_ratio = 1.
+    if upsample_size is not None:
+        upsample_ratio = upsample_size[0] / imgsize[0]
+        assert upsample_ratio == upsample_size[1] / imgsize[1]
+        imgsize = upsample_size
     #####################################################################
     # 1. find markers in images
 
@@ -180,7 +186,7 @@ def estimate_intrinsics(image_file_names=[],
         if found_dots == True:
             # add pairs of reference points and detected 2D circle centers to lists
             objpoints.append(marker_coordinates)
-            imgpoints.append(corners)
+            imgpoints.append(corners * upsample_ratio)
             valid_image_idx[k] = 1
 
     #####################################################################
@@ -307,6 +313,7 @@ def calibrate_camera(
         force_tangential_distortion_coeffs_to_zero=False,
         force_radial_distortion_coeff_K1_K2_to_zero=False,
         force_radial_distortion_coeff_K3_to_zero=False,
+        upsample_size=None,
         save_results=False,
         validate=False,
 ):
@@ -337,7 +344,8 @@ def calibrate_camera(
         intrinsic_calibration_mode=intrinsic_calibration_mode,
         force_tangential_distortion_coeffs_to_zero=force_tangential_distortion_coeffs_to_zero,
         force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,
-        force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero
+        force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero,
+        upsample_size=upsample_size,
     )
 
     print("---------------------------")
@@ -510,6 +518,7 @@ def calibrate_rgb_thermal(
         force_tangential_distortion_coeffs_to_zero=False,
         force_radial_distortion_coeff_K1_K2_to_zero=False,
         force_radial_distortion_coeff_K3_to_zero=True,
+        upsample_thermal=False,
 ):
     # get all filenames in this folder
     # files_in_folder_ = os.listdir(folder)
@@ -523,9 +532,6 @@ def calibrate_rgb_thermal(
     # print(files_in_folder)
     # print(f"Found {len(files_in_folder)} files in target folder")
 
-    # image resolution (height, width)
-    imgsize = cv2.imread(rgb_files_in_folder[0]).shape[:2]
-
     thermal_files_in_folder = []
     for f in os.listdir(thermal_folder):
         full_path = os.path.join(thermal_folder, f)
@@ -533,6 +539,16 @@ def calibrate_rgb_thermal(
             if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
                 thermal_files_in_folder.append(os.path.join(thermal_folder, f))
     thermal_files_in_folder = sorted(thermal_files_in_folder)
+
+    # image resolution (height, width)
+    rgb_imgsize = cv2.imread(rgb_files_in_folder[0]).shape[:2]
+    thermal_imgsize = cv2.imread(thermal_files_in_folder[0]).shape[:2]
+    if upsample_thermal:
+        upsample_size = rgb_imgsize
+        upsample_ratio = rgb_imgsize[0] / thermal_imgsize[0]
+    else:
+        upsample_size = None
+        upsample_ratio = 1.
 
     # 3D coordinates of the circle centers
     #   Note: if the 3 circles of the calibration markers point down in the images, then switch the flag to False
@@ -560,7 +576,7 @@ def calibrate_rgb_thermal(
             # add pairs of reference points and detected 2D circle centers to lists
             objpoints.append(marker_coordinates)
             rgb_imgpoints.append(rgb_corners)
-            thermal_imgpoints.append(thermal_corners)
+            thermal_imgpoints.append(thermal_corners * upsample_ratio)
 
     #####################################################################
     # 2. run OpenCV's calibration
@@ -594,15 +610,17 @@ def calibrate_rgb_thermal(
         force_tangential_distortion_coeffs_to_zero=force_tangential_distortion_coeffs_to_zero,
         force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,
         force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero,
+        upsample_size=upsample_size,
     )
 
     # with initial guess
-    calibration_flags += cv2.CALIB_FIX_INTRINSIC + cv2.CALIB_FIX_ASPECT_RATIO + cv2.CALIB_USE_INTRINSIC_GUESS
+    # calibration_flags += cv2.CALIB_FIX_INTRINSIC + cv2.CALIB_FIX_ASPECT_RATIO + cv2.CALIB_USE_INTRINSIC_GUESS
+    calibration_flags += cv2.CALIB_FIX_ASPECT_RATIO + cv2.CALIB_USE_INTRINSIC_GUESS
     ret, mtx_rgb, dist_rgb, mtx_thermal, dist_thermal, R, T, E, F = \
         cv2.stereoCalibrate(objpoints, rgb_imgpoints, thermal_imgpoints,
                             result_rgb["camera_matrix"], result_rgb["distortion_coeffs"],
                             result_thermal["camera_matrix"], result_thermal["distortion_coeffs"],
-                            imgsize, flags=calibration_flags)
+                            rgb_imgsize, flags=calibration_flags)
 
     #####################################################################
     # 4. prepare results

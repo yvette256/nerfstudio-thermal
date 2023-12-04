@@ -24,10 +24,12 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
     """Path to directory of thermal images."""
     eval_thermal_data: Optional[Path] = None
     """Path to eval thermal data."""
+    upsample_thermal: bool = False
+    """If true, upsample thermal images to same resolution as RGB images when extracting raws."""
 
     def __post_init__(self) -> None:
         if not self.skip_image_processing:
-            flir_utils.extract_raws_from_dir(self.data)
+            flir_utils.extract_raws_from_dir(self.data, upsample_thermal=self.upsample_thermal)
             CONSOLE.log("[bold green]:tada: Extracted raw RGB/T images from FLIR data.")
             self.data = self.data.parent / (self.data.name + "_raw") / "rgb"  # HACK: redefines self.data unintuitively
         else:
@@ -122,6 +124,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
                 cal_thermal_dir,
                 intrinsic_calibration_mode=4,
                 force_radial_distortion_coeff_K3_to_zero=True,
+                upsample_thermal=self.upsample_thermal,
             )
 
             self.mat_rgb, mat_thermal = cal_result["camera_matrix_rgb"], cal_result["camera_matrix_thermal"]
@@ -236,8 +239,6 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             # Set params for thermal frame
             thermal_frame = {
                 "file_path": thermal_frame_name,
-                # "transform_matrix":
-                #     (M_world_colmap @ M_rgb_thermal @ M_colmap_world @ np.array(frame["transform_matrix"])).tolist(),
                 "transform_matrix":
                     (np.array(frame["transform_matrix"]) @ M_world_colmap @ M_thermal_rgb @ M_colmap_world).tolist(),
                 "colmap_im_id": frame["colmap_im_id"] + len(file_data["frames"]),  # NOTE: not sure what this field is used for
