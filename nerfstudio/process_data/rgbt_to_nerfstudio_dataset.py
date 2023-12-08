@@ -123,8 +123,10 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
                 cal_rgb_dir,
                 cal_thermal_dir,
                 intrinsic_calibration_mode=4,
+                # force_tangential_distortion_coeffs_to_zero=True,
                 force_radial_distortion_coeff_K3_to_zero=True,
                 upsample_thermal=self.upsample_thermal,
+                show_preview=False,
             )
 
             self.mat_rgb, mat_thermal = cal_result["camera_matrix_rgb"], cal_result["camera_matrix_thermal"]

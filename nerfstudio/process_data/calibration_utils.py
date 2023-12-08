@@ -29,7 +29,7 @@ def get_calibration_target_circle_centers():
     return np.array(objpoints, dtype=np.float32)
 
 
-def circle_detect(captured_img, num_circles=(4, 11), show_preview=False):
+def circle_detect(captured_img, num_circles=(4, 11), show_preview=False, is_thermal=False, invert_img=False):
     """Detects the circle of a circle board pattern
 
     :param captured_img: captured image
@@ -51,6 +51,8 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False):
     img = cv2.medianBlur(img, 5)
     img_gray = img.copy()
 
+    if invert_img:
+        img = cv2.bitwise_not(img)
     img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 121, 10)
     # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
     # img = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
@@ -61,25 +63,46 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False):
     # Blob detection
     params = cv2.SimpleBlobDetector_Params()
 
-    # Change thresholds
-    params.filterByColor = True
-    params.minThreshold = 128
+    if not is_thermal:
+        # Change thresholds
+        params.filterByColor = True
+        params.minThreshold = 128
 
-    # Filter by Area.
-    params.filterByArea = True
-    params.minArea = 300
+        # Filter by Area.
+        params.filterByArea = True
+        params.minArea = 300
 
-    # Filter by Circularity
-    params.filterByCircularity = False
-    params.minCircularity = 0.8
+        # Filter by Circularity
+        params.filterByCircularity = False
+        params.minCircularity = 0.8
 
-    # Filter by Convexity
-    params.filterByConvexity = True
-    params.minConvexity = 0.80
+        # Filter by Convexity
+        params.filterByConvexity = True
+        params.minConvexity = 0.80
 
-    # Filter by Inertia
-    params.filterByInertia = False
-    params.minInertiaRatio = 0.01
+        # Filter by Inertia
+        params.filterByInertia = False
+        params.minInertiaRatio = 0.01
+    else:
+        # Change thresholds
+        params.filterByColor = True
+        params.minThreshold = 128
+
+        # Filter by Area.
+        params.filterByArea = True
+        params.minArea = 200
+
+        # Filter by Circularity
+        params.filterByCircularity = True
+        params.minCircularity = 0.5
+
+        # Filter by Convexity
+        params.filterByConvexity = True
+        params.minConvexity = 0.80
+
+        # Filter by Inertia
+        params.filterByInertia = False
+        params.minInertiaRatio = 0.01
 
     detector = cv2.SimpleBlobDetector_create(params)
 
@@ -87,20 +110,21 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False):
     # this is redundant for what comes next, but gives us access to the detected dots for debug
     keypoints = detector.detect(img)
 
-    # found_dots, centers = cv2.findCirclesGrid(img, patternSize=num_circles,
-    #                                           blobDetector=detector, flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
-
     found_dots, centers = cv2.findCirclesGrid(img,
                                               patternSize=num_circles,
                                               blobDetector=detector,
                                               flags=cv2.CALIB_CB_ASYMMETRIC_GRID + cv2.CALIB_CB_CLUSTERING)
     # print(f"detected {np.shape(keypoints)} keypoints / found_dots: {found_dots}")
 
+    # If don't find dots and we haven't tried inverting the image yet, try inverting image
+    if not found_dots and not invert_img:
+        return circle_detect(captured_img, num_circles=num_circles, show_preview=show_preview, is_thermal=is_thermal,
+                             invert_img=True)
     # NOTE: For now, assert that we find calibration pattern for all our calibration images.
     #  In the future, might want to lift this restriction and just match images for which we
     #  find calibration pattern.
     assert found_dots
-    # assert len(keypoints) == num_circles[0] * num_circles[1]
+    assert len(keypoints) == num_circles[0] * num_circles[1]
 
     if show_preview:
         # Drawing the keypoints
@@ -151,6 +175,7 @@ def estimate_intrinsics(image_file_names=[],
                         force_radial_distortion_coeff_K1_K2_to_zero=False,
                         force_radial_distortion_coeff_K3_to_zero=True,
                         upsample_size=None,
+                        show_preview=False,
                         ):
     """ Given a set of image filenames, detect marker coordinates and estimate intrinsic camera parameters.
 
@@ -181,7 +206,8 @@ def estimate_intrinsics(image_file_names=[],
         img = cv2.imread(image_file_names[k])
 
         # detect 2D circle centers
-        (corners, found_dots) = circle_detect(img.copy(), show_preview=False)
+        is_thermal = "thermal" in image_file_names[k]
+        (corners, found_dots) = circle_detect(img.copy(), show_preview=show_preview, is_thermal=is_thermal)
 
         if found_dots == True:
             # add pairs of reference points and detected 2D circle centers to lists
@@ -281,7 +307,8 @@ def evaluate_intrinsics(image_file_names=[],
         img = cv2.imread(image_file_names[k])
 
         # detect 2D circle centers
-        (corners, found_dots) = circle_detect(img.copy(), show_preview=False)
+        is_thermal = "thermal" in image_file_names[k]
+        (corners, found_dots) = circle_detect(img.copy(), show_preview=False, is_thermal=is_thermal)
 
         if found_dots == True:
             num_valid_images += 1
@@ -316,6 +343,7 @@ def calibrate_camera(
         upsample_size=None,
         save_results=False,
         validate=False,
+        show_preview=False,
 ):
     # get all filenames in this folder
     # files_in_folder_ = os.listdir(folder)
@@ -346,6 +374,7 @@ def calibrate_camera(
         force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,
         force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero,
         upsample_size=upsample_size,
+        show_preview=show_preview,
     )
 
     print("---------------------------")
@@ -519,6 +548,7 @@ def calibrate_rgb_thermal(
         force_radial_distortion_coeff_K1_K2_to_zero=False,
         force_radial_distortion_coeff_K3_to_zero=True,
         upsample_thermal=False,
+        show_preview=False,
 ):
     # get all filenames in this folder
     # files_in_folder_ = os.listdir(folder)
@@ -529,8 +559,6 @@ def calibrate_rgb_thermal(
             if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
                 rgb_files_in_folder.append(os.path.join(rgb_folder, f))
     rgb_files_in_folder = sorted(rgb_files_in_folder)
-    # print(files_in_folder)
-    # print(f"Found {len(files_in_folder)} files in target folder")
 
     thermal_files_in_folder = []
     for f in os.listdir(thermal_folder):
@@ -569,8 +597,8 @@ def calibrate_rgb_thermal(
         thermal_img = cv2.imread(thermal_files_in_folder[k])
 
         # detect 2D circle centers
-        (rgb_corners, rgb_found_dots) = circle_detect(rgb_img.copy(), show_preview=False)
-        (thermal_corners, thermal_found_dots) = circle_detect(thermal_img.copy(), show_preview=False)
+        (rgb_corners, rgb_found_dots) = circle_detect(rgb_img.copy(), show_preview=False, is_thermal=False)
+        (thermal_corners, thermal_found_dots) = circle_detect(thermal_img.copy(), show_preview=False, is_thermal=True)
 
         if rgb_found_dots and thermal_found_dots:
             # add pairs of reference points and detected 2D circle centers to lists
@@ -603,6 +631,7 @@ def calibrate_rgb_thermal(
         force_tangential_distortion_coeffs_to_zero=force_tangential_distortion_coeffs_to_zero,
         force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,
         force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero,
+        show_preview=show_preview,
     )
     result_thermal = calibrate_camera(
         thermal_folder,
@@ -611,10 +640,11 @@ def calibrate_rgb_thermal(
         force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,
         force_radial_distortion_coeff_K3_to_zero=force_radial_distortion_coeff_K3_to_zero,
         upsample_size=upsample_size,
+        show_preview=show_preview,
     )
 
     # with initial guess
-    # calibration_flags += cv2.CALIB_FIX_INTRINSIC + cv2.CALIB_FIX_ASPECT_RATIO + cv2.CALIB_USE_INTRINSIC_GUESS
+    # calibration_flags += cv2.CALIB_FIX_INTRINSIC
     calibration_flags += cv2.CALIB_FIX_ASPECT_RATIO + cv2.CALIB_USE_INTRINSIC_GUESS
     ret, mtx_rgb, dist_rgb, mtx_thermal, dist_thermal, R, T, E, F = \
         cv2.stereoCalibrate(objpoints, rgb_imgpoints, thermal_imgpoints,
@@ -646,6 +676,12 @@ def calibrate_rgb_thermal(
     print("")
     print("Relative translation:")
     print(T.squeeze())
+
+    print("")
+    print(mtx_rgb)
+    print(dist_rgb)
+    print(mtx_thermal)
+    print(dist_thermal)
 
     print("")
     print("RMSE:")
