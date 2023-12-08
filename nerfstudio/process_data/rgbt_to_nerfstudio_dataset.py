@@ -130,7 +130,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
                 # force_tangential_distortion_coeffs_to_zero=True,
                 force_radial_distortion_coeff_K3_to_zero=True,
                 upsample_thermal=self.upsample_thermal,
-                show_preview=True,
+                show_preview=False,
             )
 
             self.mat_rgb, mat_thermal = cal_result["camera_matrix_rgb"], cal_result["camera_matrix_thermal"]
@@ -188,7 +188,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         M_world_colmap = np.identity(4)  # transform from our calibration world space to colmap world space
         M_rgb_thermal = np.identity(4)  # transform from rgb camera pose to thermal camera pose in calibration world
         M_thermal_rgb = np.identity(4)  # transform from thermal camera pose to rgb camera pose in calibration world
-
+        world_colmap_scale = 1
         if self.calibration_data is not None:
             # Get intrinsics and distortion coeffs
             fx_rgb, fy_rgb, cx_rgb, cy_rgb = self.mat_rgb[0,0], self.mat_rgb[1,1], self.mat_rgb[0,2], self.mat_rgb[1,2]
@@ -243,10 +243,14 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             thermal_frame_name = self._rgb_to_thermal_path(frame["file_path"])
 
             # Set params for thermal frame
+            M_thermal_rgb_colmap = M_thermal_rgb.copy()
+            M_thermal_rgb_colmap[:3,3] *= world_colmap_scale
             thermal_frame = {
                 "file_path": thermal_frame_name,
                 "transform_matrix":
                     (np.array(frame["transform_matrix"]) @ M_world_colmap @ M_thermal_rgb @ M_colmap_world).tolist(),
+                # "transform_matrix":
+                #     (np.array(frame["transform_matrix"]) @ M_thermal_rgb_colmap).tolist(),
                 "colmap_im_id": frame["colmap_im_id"] + len(file_data["frames"]),  # NOTE: not sure what this field is used for
                 "is_thermal": 1,
             }
