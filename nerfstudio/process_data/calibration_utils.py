@@ -358,7 +358,7 @@ def evaluate_intrinsics(image_file_names=[],
 
 
 def calibrate_camera(
-        folder,
+        folders,
         intrinsic_calibration_mode=2,
         force_tangential_distortion_coeffs_to_zero=False,
         force_radial_distortion_coeff_K1_K2_to_zero=False,
@@ -371,11 +371,12 @@ def calibrate_camera(
     # get all filenames in this folder
     # files_in_folder_ = os.listdir(folder)
     files_in_folder = []
-    for f in os.listdir(folder):
-        full_path = os.path.join(folder, f)
-        if os.path.isfile(full_path):
-            if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
-                files_in_folder.append(os.path.join(folder, f))
+    for folder in folders:
+        for f in os.listdir(folder):
+            full_path = os.path.join(folder, f)
+            if os.path.isfile(full_path):
+                if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
+                    files_in_folder.append(os.path.join(folder, f))
     files_in_folder = sorted(files_in_folder)
     # print(files_in_folder)
     # print(f"Found {len(files_in_folder)} files in target folder")
@@ -564,8 +565,8 @@ def calibrate_rgb_thermal(
 
 
 def calibrate_rgb_thermal(
-        rgb_folder,
-        thermal_folder,
+        rgb_folders,
+        thermal_folders,
         intrinsic_calibration_mode=2,
         force_tangential_distortion_coeffs_to_zero=False,
         force_radial_distortion_coeff_K1_K2_to_zero=False,
@@ -576,20 +577,24 @@ def calibrate_rgb_thermal(
     # get all filenames in this folder
     # files_in_folder_ = os.listdir(folder)
     rgb_files_in_folder = []
-    for f in os.listdir(rgb_folder):
-        full_path = os.path.join(rgb_folder, f)
-        if os.path.isfile(full_path):
-            if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
-                rgb_files_in_folder.append(os.path.join(rgb_folder, f))
+    for rgb_folder in rgb_folders:
+        for f in os.listdir(rgb_folder):
+            full_path = os.path.join(rgb_folder, f)
+            if os.path.isfile(full_path):
+                if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
+                    rgb_files_in_folder.append(os.path.join(rgb_folder, f))
     rgb_files_in_folder = sorted(rgb_files_in_folder)
 
     thermal_files_in_folder = []
-    for f in os.listdir(thermal_folder):
-        full_path = os.path.join(thermal_folder, f)
-        if os.path.isfile(full_path):
-            if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
-                thermal_files_in_folder.append(os.path.join(thermal_folder, f))
+    for thermal_folder in thermal_folders:
+        for f in os.listdir(thermal_folder):
+            full_path = os.path.join(thermal_folder, f)
+            if os.path.isfile(full_path):
+                if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
+                    thermal_files_in_folder.append(os.path.join(thermal_folder, f))
     thermal_files_in_folder = sorted(thermal_files_in_folder)
+    assert all([rgb_files_in_folder[i].replace('rgb', 'thermal') == thermal_files_in_folder[i]
+                for i in range(len(rgb_files_in_folder))])
 
     # image resolution (height, width)
     rgb_imgsize = cv2.imread(rgb_files_in_folder[0]).shape[:2]
@@ -654,7 +659,7 @@ def calibrate_rgb_thermal(
 
     # initial guess
     result_rgb = calibrate_camera(
-        rgb_folder,
+        rgb_folders,
         intrinsic_calibration_mode=intrinsic_calibration_mode,
         force_tangential_distortion_coeffs_to_zero=force_tangential_distortion_coeffs_to_zero,
         force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,
@@ -662,7 +667,7 @@ def calibrate_rgb_thermal(
         show_preview=show_preview,
     )
     result_thermal = calibrate_camera(
-        thermal_folder,
+        thermal_folders,
         intrinsic_calibration_mode=intrinsic_calibration_mode,
         force_tangential_distortion_coeffs_to_zero=force_tangential_distortion_coeffs_to_zero,
         force_radial_distortion_coeff_K1_K2_to_zero=force_radial_distortion_coeff_K1_K2_to_zero,

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Union
 
 import cv2
 import numpy as np
@@ -18,8 +18,9 @@ from nerfstudio.utils.rich_utils import CONSOLE
 class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
     """Process images into a thermal nerfstudio dataset."""
 
-    calibration_data: Optional[Path] = None
-    """Path to directory of calibration images."""
+    # calibration_data: Optional[Union[Path, List[Path]]] = None
+    calibration_data: Optional[List[Path]] = None
+    """Paths to directories containing calibration images."""
     thermal_data: Optional[Path] = None
     """Path to directory of thermal images."""
     eval_thermal_data: Optional[Path] = None
@@ -118,12 +119,13 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         # Calibrate RGB and thermal cameras
         if self.calibration_data is not None:
             if not self.skip_calibration_processing:
-                flir_utils.extract_raws_from_dir(self.calibration_data)
-            cal_rgb_dir = f"{self.calibration_data}_raw/rgb"
-            cal_thermal_dir = f"{self.calibration_data}_raw/thermal"
+                for path in self.calibration_data:
+                    flir_utils.extract_raws_from_dir(path)
+            cal_rgb_dirs = [f"{path}_raw/rgb" for path in self.calibration_data]
+            cal_thermal_dirs = [f"{path}_raw/thermal" for path in self.calibration_data]
             cal_result = calibration_utils.calibrate_rgb_thermal(
-                cal_rgb_dir,
-                cal_thermal_dir,
+                cal_rgb_dirs,
+                cal_thermal_dirs,
                 intrinsic_calibration_mode=4,
                 # force_tangential_distortion_coeffs_to_zero=True,
                 force_radial_distortion_coeff_K3_to_zero=True,
