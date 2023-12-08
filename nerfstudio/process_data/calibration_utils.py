@@ -29,7 +29,8 @@ def get_calibration_target_circle_centers():
     return np.array(objpoints, dtype=np.float32)
 
 
-def circle_detect(captured_img, num_circles=(4, 11), show_preview=False, is_thermal=False, invert_img=False):
+def circle_detect(captured_img, num_circles=(4, 11), show_preview=False, is_thermal=False, invert_img=False,
+                  filename=None):
     """Detects the circle of a circle board pattern
 
     :param captured_img: captured image
@@ -47,30 +48,32 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False, is_ther
     if len(img.shape) > 2:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # img = cv2.medianBlur(img, 15)
-    img = cv2.medianBlur(img, 5)
-    img_gray = img.copy()
-
-    if invert_img:
-        img = cv2.bitwise_not(img)
-    img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 121, 10)
-    # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-    # img = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
-
-    # img = 255 - img
-    # img_gray = img_gray
-
     # Blob detection
     params = cv2.SimpleBlobDetector_Params()
 
     if not is_thermal:
+        # img = cv2.medianBlur(img, 15)
+        img = cv2.medianBlur(img, 5)
+        # img = cv2.GaussianBlur(img, (5, 5), 0, 0)
+        img_gray = img.copy()
+
+        if invert_img:
+            img = cv2.bitwise_not(img)
+        img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 121, 10)
+        img = cv2.GaussianBlur(img, (5, 5), 0, 0)
+        # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+        # img = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
+
+        # img = 255 - img
+        # img_gray = img_gray
+
         # Change thresholds
         params.filterByColor = True
         params.minThreshold = 128
 
         # Filter by Area.
         params.filterByArea = True
-        params.minArea = 300
+        params.minArea = 400
 
         # Filter by Circularity
         params.filterByCircularity = False
@@ -83,14 +86,24 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False, is_ther
         # Filter by Inertia
         params.filterByInertia = False
         params.minInertiaRatio = 0.01
+
     else:
+        img = cv2.medianBlur(img, 5)
+        # img = cv2.GaussianBlur(img, (5, 5), 0, 0)
+        img_gray = img.copy()
+
+        if invert_img:
+            img = cv2.bitwise_not(img)
+        img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 121, 10)
+        img = cv2.GaussianBlur(img, (5, 5), 0, 0)
+
         # Change thresholds
         params.filterByColor = True
         params.minThreshold = 128
 
         # Filter by Area.
         params.filterByArea = True
-        params.minArea = 200
+        params.minArea = 150
 
         # Filter by Circularity
         params.filterByCircularity = True
@@ -114,17 +127,17 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False, is_ther
                                               patternSize=num_circles,
                                               blobDetector=detector,
                                               flags=cv2.CALIB_CB_ASYMMETRIC_GRID + cv2.CALIB_CB_CLUSTERING)
-    # print(f"detected {np.shape(keypoints)} keypoints / found_dots: {found_dots}")
+    # print(f"{os.path.basename(filename)}: {np.shape(keypoints)} keypoints / found_dots: {found_dots}")
 
     # If don't find dots and we haven't tried inverting the image yet, try inverting image
     if not found_dots and not invert_img:
         return circle_detect(captured_img, num_circles=num_circles, show_preview=show_preview, is_thermal=is_thermal,
-                             invert_img=True)
+                             invert_img=True, filename=filename)
     # NOTE: For now, assert that we find calibration pattern for all our calibration images.
     #  In the future, might want to lift this restriction and just match images for which we
     #  find calibration pattern.
-    assert found_dots
-    assert len(keypoints) == num_circles[0] * num_circles[1]
+    # assert found_dots
+    # assert len(keypoints) == num_circles[0] * num_circles[1]
 
     if show_preview:
         # Drawing the keypoints
@@ -161,8 +174,12 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False, is_ther
                 plt.plot(centers[kk, 0, 0], centers[kk, 0, 1], 'gx')
                 ax4.annotate(f"{kk}", (centers[kk, 0, 0] + 5, centers[kk, 0, 1]), fontsize=8, color="r")
 
-        # plt.savefig('output.png')
+        if filename is not None:
+            if not os.path.exists('tmp'):
+                os.makedirs('tmp')
+            plt.savefig(f'tmp/detection_{os.path.basename(filename)}')
         plt.show()
+        plt.close()
 
     return centers, found_dots
 
@@ -200,20 +217,25 @@ def estimate_intrinsics(image_file_names=[],
     imgpoints = []  # 2d points in image plane.
     valid_image_idx = np.zeros(len(image_file_names))
 
+    is_thermal = False
     for k in range(len(image_file_names)):
 
         # load image
         img = cv2.imread(image_file_names[k])
 
         # detect 2D circle centers
-        is_thermal = "thermal" in image_file_names[k]
-        (corners, found_dots) = circle_detect(img.copy(), show_preview=show_preview, is_thermal=is_thermal)
+        is_thermal = "thermal" in os.path.basename(image_file_names[k])
+        (corners, found_dots) = circle_detect(img.copy(), show_preview=show_preview, is_thermal=is_thermal,
+                                              filename=image_file_names[k])
 
         if found_dots == True:
             # add pairs of reference points and detected 2D circle centers to lists
             objpoints.append(marker_coordinates)
             imgpoints.append(corners * upsample_ratio)
             valid_image_idx[k] = 1
+
+    print("---------------------------")
+    print(f'found dots for {len(imgpoints)} / {len(image_file_names)} {"thermal" if is_thermal else "rgb"} images')
 
     #####################################################################
     # 2. run OpenCV's calibration
@@ -308,7 +330,8 @@ def evaluate_intrinsics(image_file_names=[],
 
         # detect 2D circle centers
         is_thermal = "thermal" in image_file_names[k]
-        (corners, found_dots) = circle_detect(img.copy(), show_preview=False, is_thermal=is_thermal)
+        (corners, found_dots) = circle_detect(img.copy(), show_preview=False, is_thermal=is_thermal,
+                                              filename=image_file_names[k])
 
         if found_dots == True:
             num_valid_images += 1
@@ -597,14 +620,19 @@ def calibrate_rgb_thermal(
         thermal_img = cv2.imread(thermal_files_in_folder[k])
 
         # detect 2D circle centers
-        (rgb_corners, rgb_found_dots) = circle_detect(rgb_img.copy(), show_preview=False, is_thermal=False)
-        (thermal_corners, thermal_found_dots) = circle_detect(thermal_img.copy(), show_preview=False, is_thermal=True)
+        (rgb_corners, rgb_found_dots) = circle_detect(rgb_img.copy(), show_preview=False, is_thermal=False,
+                                                      filename=rgb_files_in_folder[k])
+        (thermal_corners, thermal_found_dots) = circle_detect(thermal_img.copy(), show_preview=False, is_thermal=True,
+                                                              filename=thermal_files_in_folder[k])
 
         if rgb_found_dots and thermal_found_dots:
             # add pairs of reference points and detected 2D circle centers to lists
             objpoints.append(marker_coordinates)
             rgb_imgpoints.append(rgb_corners)
             thermal_imgpoints.append(thermal_corners * upsample_ratio)
+
+    print("---------------------------")
+    print(f'found rgb+thermal dots for {len(rgb_imgpoints)} / {len(rgb_files_in_folder)} images')
 
     #####################################################################
     # 2. run OpenCV's calibration
@@ -678,8 +706,12 @@ def calibrate_rgb_thermal(
     print(T.squeeze())
 
     print("")
+    print("RGB camera matrix + distortion:")
     print(mtx_rgb)
     print(dist_rgb)
+
+    print("")
+    print("Thermal camera matrix + distortion:")
     print(mtx_thermal)
     print(dist_thermal)
 

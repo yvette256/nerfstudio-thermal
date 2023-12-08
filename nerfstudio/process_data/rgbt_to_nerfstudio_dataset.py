@@ -18,14 +18,16 @@ from nerfstudio.utils.rich_utils import CONSOLE
 class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
     """Process images into a thermal nerfstudio dataset."""
 
-    calibration_data: Path = None
+    calibration_data: Optional[Path] = None
     """Path to directory of calibration images."""
-    thermal_data: Path = None
+    thermal_data: Optional[Path] = None
     """Path to directory of thermal images."""
     eval_thermal_data: Optional[Path] = None
     """Path to eval thermal data."""
     upsample_thermal: bool = False
     """If true, upsample thermal images to same resolution as RGB images when extracting raws."""
+    skip_calibration_processing: bool = False
+    """If true, skip extracting raw RGB/thermal from calibration FLIR data."""
 
     def __post_init__(self) -> None:
         if not self.skip_image_processing:
@@ -115,7 +117,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         """Process images into a thermal nerfstudio dataset."""
         # Calibrate RGB and thermal cameras
         if self.calibration_data is not None:
-            if not self.skip_image_processing:
+            if not self.skip_calibration_processing:
                 flir_utils.extract_raws_from_dir(self.calibration_data)
             cal_rgb_dir = f"{self.calibration_data}_raw/rgb"
             cal_thermal_dir = f"{self.calibration_data}_raw/thermal"
@@ -126,7 +128,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
                 # force_tangential_distortion_coeffs_to_zero=True,
                 force_radial_distortion_coeff_K3_to_zero=True,
                 upsample_thermal=self.upsample_thermal,
-                show_preview=False,
+                show_preview=True,
             )
 
             self.mat_rgb, mat_thermal = cal_result["camera_matrix_rgb"], cal_result["camera_matrix_thermal"]
