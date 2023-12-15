@@ -90,6 +90,7 @@ def circle_detect(captured_img, num_circles=(4, 11), show_preview=False, is_ther
     else:
         img = cv2.medianBlur(img, 5)
         # img = cv2.GaussianBlur(img, (5, 5), 0, 0)
+        img = cv2.bilateralFilter(img, 9, 35, 35)  # seems to be good w/ calibration8
         img_gray = img.copy()
 
         if invert_img:
