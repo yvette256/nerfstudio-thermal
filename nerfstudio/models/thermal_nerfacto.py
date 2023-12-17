@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Tuple, Type
 
 import torch
+from torch import Tensor
 
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.field_components.spatial_distortions import SceneContraction
@@ -70,6 +71,8 @@ class ThermalNerfactoModel(NerfactoModel):
         self.rgb_loss = MSELossRGBT()
 
         # metrics
+        self.psnr_orig = self.psnr
+        # metrics (4-channel e.g. RGBT)
         self.psnr = PeakSignalNoiseRatioRGBT(data_range=1.0)
         self.ssim = ssim_rgbt
         self.lpips = LearnedPerceptualImagePatchSimilarityRGBT(normalize=True)
@@ -145,13 +148,28 @@ class ThermalNerfactoModel(NerfactoModel):
         gt_rgb = torch.moveaxis(gt_rgb, -1, 0)[None, ...]
         predicted_rgb = torch.moveaxis(predicted_rgb, -1, 0)[None, ...]
 
-        psnr = self.psnr(gt_rgb, predicted_rgb, batch["is_thermal"])
-        ssim = self.ssim(gt_rgb, predicted_rgb, batch["is_thermal"])
-        lpips = self.lpips(gt_rgb, predicted_rgb, batch["is_thermal"])
+        # psnr = self.psnr(gt_rgb, predicted_rgb, batch["is_thermal"])
+        # ssim = self.ssim(gt_rgb, predicted_rgb, batch["is_thermal"])
+        # lpips = self.lpips(gt_rgb, predicted_rgb, batch["is_thermal"])
+        psnr_rgb = Tensor([-1])
+        psnr_thermal = Tensor([-1])
+        if not hasattr(batch["is_thermal"], "__len__"):  # HACK: want better extension to if is_thermal is tensor
+            print(batch["is_thermal"])
+            if batch["is_thermal"] > 0:
+                print('gt rgb', gt_rgb[:, :3, :, :].max())
+                print('predicted rgb', predicted_rgb[:, :3, :, :].max())
+                psnr_rgb = self.psnr_orig(gt_rgb[:, :3, :, :], predicted_rgb[:, :3, :, :])
+            else:
+                print('gt thermal', gt_rgb[:, 3:, :, :].max())
+                print('predicted thermal', predicted_rgb[:, 3:, :, :].max())
+                psnr_thermal = self.psnr_orig(gt_rgb[:, 3:, :, :], predicted_rgb[:, 3:, :, :])
 
         # all of these metrics will be logged as scalars
-        metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
-        metrics_dict["lpips"] = float(lpips)
+        # metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
+        metrics_dict = {}  # type: ignore
+        # metrics_dict["lpips"] = float(lpips)
+        metrics_dict["psnr_rgb"] = float(psnr_rgb.item())
+        metrics_dict["psnr_thermal"] = float(psnr_thermal.item())
 
         images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
 

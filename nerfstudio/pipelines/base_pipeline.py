@@ -398,13 +398,14 @@ class VanillaPipeline(Pipeline):
         for key in metrics_dict_list[0].keys():
             if get_std:
                 key_std, key_mean = torch.std_mean(
-                    torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list])
+                    torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list if metrics_dict[key] > -1])
                 )
                 metrics_dict[key] = float(key_mean)
                 metrics_dict[f"{key}_std"] = float(key_std)
             else:
                 metrics_dict[key] = float(
-                    torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list]))
+                    torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list
+                                             if metrics_dict[key] > -1]))
                 )
         self.train()
         return metrics_dict
