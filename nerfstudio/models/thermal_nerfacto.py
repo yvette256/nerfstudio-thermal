@@ -32,6 +32,9 @@ class ThermalNerfactoModel(NerfactoModel):
     Args:
         config: Nerfacto configuration to instantiate model
     """
+    # TODO: Warning: ambiguous variable names in this class; sometimes "rgb" means "rgbt."
+    #  This is b/c it's built on the NerfactoModel class and some attribute/method names might need to be
+    #  preserved; still this is probably overused and should be refactored eventually.
 
     config = ThermalNerfactoModelConfig
 
@@ -70,6 +73,7 @@ class ThermalNerfactoModel(NerfactoModel):
         self.rgb_loss = MSELossRGBT()
 
         # metrics
+        # XXX: these are untested, but not strictly necessary for model to function
         self.ssim = ssim_rgbt
         self.lpips = LearnedPerceptualImagePatchSimilarityRGBT(normalize=True)
 
