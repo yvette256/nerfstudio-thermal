@@ -20,6 +20,8 @@ class ThermalNerf(Nerfstudio):
     config = ThermalNerfDataParserConfig
 
     def _generate_dataparser_outputs(self, split="train"):
+        # TODO: enforce equal number of rgb/thermal in eval split
+        #  usually this ends up the case but not guaranteed/fully robust
         dataparser_outputs = super()._generate_dataparser_outputs(split=split)
 
         if self.config.data.suffix == ".json":

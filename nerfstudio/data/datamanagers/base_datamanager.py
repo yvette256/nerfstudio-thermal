@@ -516,8 +516,7 @@ class VanillaDataManager(DataManager, Generic[TDataset]):
         self.eval_ray_generator = RayGenerator(self.eval_dataset.cameras.to(self.device))
         # for loading full images
         self.fixed_indices_eval_dataloader = FixedIndicesEvalDataloader(
-            # input_dataset=self.eval_dataset,
-            input_dataset=self.train_dataset,  # FIXME: HACK: change this back
+            input_dataset=self.eval_dataset,
             device=self.device,
             num_workers=self.world_size * 4,
         )

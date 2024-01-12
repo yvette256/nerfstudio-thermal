@@ -78,7 +78,8 @@ class ThermalNerfactoModel(NerfactoModel):
         gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb, batch["is_thermal"])  # Blend if RGBA
         predicted_rgb = outputs["rgb"]
-        metrics_dict["psnr"] = self.psnr(predicted_rgb, gt_rgb, batch["is_thermal"])
+        # TODO: add psnr_rgb and psnr_thermal metrics (see: get_image_metrics_and_images)
+        # metrics_dict["psnr"] = self.psnr(predicted_rgb, gt_rgb, batch["is_thermal"])
 
         if self.training:
             metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
