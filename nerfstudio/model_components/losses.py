@@ -600,24 +600,6 @@ class MSELossRGBT(nn.Module):
         return self.mse_loss(gt_rgbt, pred_rgbt)
 
 
-class PeakSignalNoiseRatioRGBT(nn.Module):
-    def __init__(
-            self,
-            data_range: Optional[Union[float, Tuple[float, float]]] = None,
-    ):
-        super().__init__()
-        self.psnr = PeakSignalNoiseRatio(data_range=data_range)
-
-    def forward(
-            self,
-            gt_rgbt: Float[Tensor, "*bs 4"],
-            pred_rgbt: Float[Tensor, "*bs 4"],
-            is_thermal: Float[Tensor, "*bs"],
-    ) -> Tensor:
-        gt_rgbt = align_gt_with_pred_rgbt(gt_rgbt, pred_rgbt, is_thermal)
-        return self.psnr(gt_rgbt, pred_rgbt)
-
-
 def ssim_rgbt(
         gt_rgbt: Float[Tensor, "*bs 4"],
         pred_rgbt: Float[Tensor, "*bs 4"],

@@ -12,7 +12,6 @@ from nerfstudio.model_components.losses import (
     distortion_loss,
     interlevel_loss,
     MSELossRGBT,
-    PeakSignalNoiseRatioRGBT,
     ssim_rgbt,
     LearnedPerceptualImagePatchSimilarityRGBT,
 )
@@ -71,9 +70,6 @@ class ThermalNerfactoModel(NerfactoModel):
         self.rgb_loss = MSELossRGBT()
 
         # metrics
-        self.psnr_orig = self.psnr
-        # metrics (4-channel e.g. RGBT)
-        self.psnr = PeakSignalNoiseRatioRGBT(data_range=1.0)
         self.ssim = ssim_rgbt
         self.lpips = LearnedPerceptualImagePatchSimilarityRGBT(normalize=True)
 
@@ -154,15 +150,10 @@ class ThermalNerfactoModel(NerfactoModel):
         psnr_rgb = Tensor([-1])
         psnr_thermal = Tensor([-1])
         if not hasattr(batch["is_thermal"], "__len__"):  # HACK: want better extension to if is_thermal is tensor
-            print(batch["is_thermal"])
-            if batch["is_thermal"] > 0:
-                print('gt rgb', gt_rgb[:, :3, :, :].max())
-                print('predicted rgb', predicted_rgb[:, :3, :, :].max())
-                psnr_rgb = self.psnr_orig(gt_rgb[:, :3, :, :], predicted_rgb[:, :3, :, :])
+            if batch["is_thermal"] < 1:
+                psnr_rgb = self.psnr(gt_rgb[:, :3, :, :], predicted_rgb[:, :3, :, :])
             else:
-                print('gt thermal', gt_rgb[:, 3:, :, :].max())
-                print('predicted thermal', predicted_rgb[:, 3:, :, :].max())
-                psnr_thermal = self.psnr_orig(gt_rgb[:, 3:, :, :], predicted_rgb[:, 3:, :, :])
+                psnr_thermal = self.psnr(gt_rgb[:, 3:, :, :], predicted_rgb[:, 3:, :, :])
 
         # all of these metrics will be logged as scalars
         # metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
