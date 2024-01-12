@@ -38,13 +38,15 @@ def align_gt_with_pred_rgbt(
         is_thermal: Float[Tensor, "*bs"],
 ) -> Float[Tensor, "*bs 4"]:
     is_rgb = 1 - is_thermal
-    # FIXME: BUG: pretty sure this mutates the gt values which is wrong
     # if gt is thermal, use predicted rgb values for 0 rgb loss
+    for i in range(3):
+        gt_rgbt[..., i] *= is_rgb
     if hasattr(is_thermal, "__len__"):  # HACK: want better extension to different index ordering e.g. (1, C, H, W)
         gt_rgbt[..., :3] += torch.einsum("ij,i->ij", pred_rgbt[..., :3], is_thermal)
     else:
         gt_rgbt[..., :3] += pred_rgbt[..., :3] * is_thermal
     # if gt is rgb, use predicted thermal values for 0 thermal loss
+    gt_rgbt[..., 3] *= is_thermal
     gt_rgbt[..., 3] += pred_rgbt[..., 3] * is_rgb
     return gt_rgbt
 
