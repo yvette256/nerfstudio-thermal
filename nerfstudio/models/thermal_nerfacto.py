@@ -147,6 +147,7 @@ class ThermalNerfactoModel(NerfactoModel):
         # psnr = self.psnr(gt_rgb, predicted_rgb, batch["is_thermal"])
         # ssim = self.ssim(gt_rgb, predicted_rgb, batch["is_thermal"])
         # lpips = self.lpips(gt_rgb, predicted_rgb, batch["is_thermal"])
+
         psnr_rgb = Tensor([-1])
         psnr_thermal = Tensor([-1])
         if not hasattr(batch["is_thermal"], "__len__"):  # HACK: want better extension to if is_thermal is tensor
