@@ -1,18 +1,24 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Tuple, Type
 
+import numpy as np
 import torch
 from torch import Tensor
+from torch.nn import Parameter
 
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.field_components.spatial_distortions import SceneContraction
+from nerfstudio.fields.density_fields import HashMLPDensityField
 from nerfstudio.fields.thermal_nerfacto_field import ThermalNerfactoField
-from nerfstudio.model_components.renderers import RGBTRenderer
+from nerfstudio.model_components.ray_samplers import ProposalNetworkSampler, UniformSampler
+from nerfstudio.model_components.renderers import RGBRenderer, RGBTRenderer
 from nerfstudio.model_components.losses import (
     distortion_loss,
     interlevel_loss,
+    MSELoss,
     MSELossRGBT,
     ssim_rgbt,
+    L1Loss,
     LearnedPerceptualImagePatchSimilarityRGBT,
 )
 from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig
@@ -21,16 +27,20 @@ from nerfstudio.utils import colormaps
 
 @dataclass
 class ThermalNerfactoModelConfig(NerfactoModelConfig):
-    """Additional parameters for thermal model."""
+    """Thermal Nerfacto Model Config"""
 
     _target: Type = field(default_factory=lambda: ThermalNerfactoModel)
+    density_loss_mult: float = 0.001
+    """Density loss (L1 norm of [rgb density] - [thermal density]) multiplier."""
+    separate_rgbt_densities: bool = True  # XXX: currently only uses RGB info if False (should treat as naive RGBT)
+    """Whether to treat RGB and thermal densities as separate."""
 
 
 class ThermalNerfactoModel(NerfactoModel):
-    """Thermal data augmented nerfacto model.
+    """Thermal Nerfacto model
 
     Args:
-        config: Nerfacto configuration to instantiate model
+        config: Thermal Nerfacto configuration to instantiate model
     """
     # TODO: Warning: ambiguous variable names in this class; sometimes "rgb" means "rgbt."
     #  This is b/c it's built on the NerfactoModel class and some attribute/method names might need to be
@@ -46,6 +56,11 @@ class ThermalNerfactoModel(NerfactoModel):
             scene_contraction = None
         else:
             scene_contraction = SceneContraction(order=float("inf"))
+
+        if self.config.separate_rgbt_densities:
+            self.output_suffixes = ("", "_thermal")
+        else:
+            self.output_suffixes = ("",)
 
         # Fields
         self.field = ThermalNerfactoField(
@@ -64,29 +79,107 @@ class ThermalNerfactoModel(NerfactoModel):
             use_average_appearance_embedding=self.config.use_average_appearance_embedding,
             appearance_embedding_dim=self.config.appearance_embed_dim,
             implementation=self.config.implementation,
+            num_channels=3,
+        )
+        if self.config.separate_rgbt_densities:
+            self.field_thermal = ThermalNerfactoField(
+                self.scene_box.aabb,
+                hidden_dim=self.config.hidden_dim,
+                num_levels=self.config.num_levels,
+                max_res=self.config.max_res,
+                base_res=self.config.base_res,
+                features_per_level=self.config.features_per_level,
+                log2_hashmap_size=self.config.log2_hashmap_size,
+                hidden_dim_color=self.config.hidden_dim_color,
+                hidden_dim_transient=self.config.hidden_dim_transient,
+                spatial_distortion=scene_contraction,
+                num_images=self.num_train_data,
+                use_pred_normals=self.config.predict_normals,
+                use_average_appearance_embedding=self.config.use_average_appearance_embedding,
+                appearance_embedding_dim=self.config.appearance_embed_dim,
+                implementation=self.config.implementation,
+                num_channels=1,
+            )
+
+        # Build the thermal proposal network
+        self.density_fns_thermal = []
+
+        num_prop_nets = self.config.num_proposal_iterations
+        self.proposal_networks_thermal = torch.nn.ModuleList()
+        if self.config.use_same_proposal_network:
+            assert len(self.config.proposal_net_args_list) == 1, "Only one proposal network is allowed."
+            prop_net_args = self.config.proposal_net_args_list[0]
+            network = HashMLPDensityField(
+                self.scene_box.aabb,
+                spatial_distortion=scene_contraction,
+                **prop_net_args,
+                implementation=self.config.implementation,
+            )
+            self.proposal_networks_thermal.append(network)
+            self.density_fns_thermal.extend([network.density_fn for _ in range(num_prop_nets)])
+        else:
+            for i in range(num_prop_nets):
+                prop_net_args = self.config.proposal_net_args_list[min(i, len(self.config.proposal_net_args_list) - 1)]
+                network = HashMLPDensityField(
+                    self.scene_box.aabb,
+                    spatial_distortion=scene_contraction,
+                    **prop_net_args,
+                    implementation=self.config.implementation,
+                )
+                self.proposal_networks_thermal.append(network)
+            self.density_fns_thermal.extend([network.density_fn for network in self.proposal_networks_thermal])
+
+        # Samplers  # HACK: I don't think I need to redefine this? just pass the correct density_fns
+        def update_schedule(step):
+            return np.clip(
+                np.interp(step, [0, self.config.proposal_warmup], [0, self.config.proposal_update_every]),
+                1,
+                self.config.proposal_update_every,
+            )
+
+        # Change proposal network initial sampler if uniform
+        initial_sampler = None  # None is for piecewise as default (see ProposalNetworkSampler)
+        if self.config.proposal_initial_sampler == "uniform":
+            initial_sampler = UniformSampler(single_jitter=self.config.use_single_jitter)
+
+        self.proposal_sampler_thermal = ProposalNetworkSampler(
+            num_nerf_samples_per_ray=self.config.num_nerf_samples_per_ray,
+            num_proposal_samples_per_ray=self.config.num_proposal_samples_per_ray,
+            num_proposal_network_iterations=self.config.num_proposal_iterations,
+            single_jitter=self.config.use_single_jitter,
+            update_sched=update_schedule,
+            initial_sampler=initial_sampler,
         )
 
         # renderers
-        self.renderer_rgb = RGBTRenderer(background_color=self.config.background_color)
+        self.renderer_rgbt = RGBTRenderer(background_color=self.config.background_color)
+        self.renderer_thermal = RGBRenderer(background_color=self.config.background_color,
+                                            num_channels=1)
 
         # losses
-        self.rgb_loss = MSELossRGBT()
+        self.rgbt_loss = MSELossRGBT()
+        self.density_loss = L1Loss()
 
         # metrics
-        # XXX: these are untested, but not strictly necessary for model to function
+        # XXX: these are untested, but not strictly necessary for model to train
         self.ssim = ssim_rgbt
         self.lpips = LearnedPerceptualImagePatchSimilarityRGBT(normalize=True)
 
     def get_metrics_dict(self, outputs, batch):
         metrics_dict = {}
         gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
-        gt_rgb = self.renderer_rgb.blend_background(gt_rgb, batch["is_thermal"])  # Blend if RGBA
+        gt_rgb = self.renderer_rgbt.blend_background(gt_rgb, batch["is_thermal"])  # Blend if RGBA
         predicted_rgb = outputs["rgb"]
+        # FIXME: separate rgb/t
         # TODO: add psnr_rgb and psnr_thermal metrics (see: get_image_metrics_and_images)
         # metrics_dict["psnr"] = self.psnr(predicted_rgb, gt_rgb, batch["is_thermal"])
 
         if self.training:
-            metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
+            metrics_dict["distortion"] = 0
+            for s in self.output_suffixes:
+                metrics_dict["distortion"] += distortion_loss(
+                    outputs[f"weights_list{s}"], outputs[f"ray_samples_list{s}"]
+                )
 
         self.camera_optimizer.get_metrics_dict(metrics_dict)
         return metrics_dict
@@ -94,39 +187,93 @@ class ThermalNerfactoModel(NerfactoModel):
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         loss_dict = {}
         image = batch["image"].to(self.device)
-        pred_rgb, gt_rgb = self.renderer_rgb.blend_background_for_loss_computation(
-            pred_image=outputs["rgb"],
-            pred_accumulation=outputs["accumulation"],
-            gt_image=image,
-            is_thermal=batch["is_thermal"],
-        )
 
-        loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb, batch["is_thermal"])
-        if self.training:
-            loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
-                outputs["weights_list"], outputs["ray_samples_list"]
+        if self.config.separate_rgbt_densities:
+            pred_rgb, gt_rgb = self.renderer_rgbt.blend_background_for_loss_computation(
+                pred_image=torch.cat((outputs["rgb"], outputs["rgb_thermal"]), dim=1),
+                pred_accumulation=outputs["accumulation"],  # XXX: which accumulation should this be?
+                gt_image=image,
+                is_thermal=batch["is_thermal"],
             )
-            assert metrics_dict is not None and "distortion" in metrics_dict
-            loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
-            if self.config.predict_normals:
-                # orientation loss for computed normals
-                loss_dict["orientation_loss"] = self.config.orientation_loss_mult * torch.mean(
-                    outputs["rendered_orientation_loss"]
-                )
+        else:
+            pred_rgb, gt_rgb = self.renderer_rgbt.blend_background_for_loss_computation(
+                pred_image=torch.cat((outputs["rgb"], torch.zeros(outputs["rgb"].shape[0], 1).to("cuda")), dim=1),
+                pred_accumulation=outputs["accumulation"],  # XXX: which accumulation should this be?
+                gt_image=image,
+                is_thermal=batch["is_thermal"],
+            )
 
-                # ground truth supervision for normals
-                loss_dict["pred_normal_loss"] = self.config.pred_normal_loss_mult * torch.mean(
-                    outputs["rendered_pred_normal_loss"]
+        loss_dict["rgb_loss"] = self.rgb_loss(
+            gt_rgb[..., :3] * (1 - batch["is_thermal"])[:, None],
+            pred_rgb[..., :3] * (1 - batch["is_thermal"])[:, None]
+        )
+        if self.config.separate_rgbt_densities:
+            loss_dict["thermal_loss"] = self.rgb_loss(
+                gt_rgb[..., 3:] * batch["is_thermal"][:, None],
+                pred_rgb[..., 3:] * batch["is_thermal"][:, None]
+            )
+        # rgbt_loss = self.rgbt_loss(gt_rgb, pred_rgb, batch["is_thermal"])
+        # assert torch.allclose(rgbt_loss, loss_dict["rgb_loss"] + loss_dict["thermal_loss"])
+        # loss_dict["density_loss"] = 1e-3 * self.density_loss(outputs["density"], outputs["density_thermal"])
+        if self.training:
+            loss_dict["interlevel_loss"] = 0
+            loss_dict["distortion_loss"] = 0
+            if self.config.predict_normals:
+                loss_dict["orientation_loss"] = 0
+                loss_dict["pred_normal_loss"] = 0
+
+            for s in self.output_suffixes:
+                loss_dict["interlevel_loss"] += self.config.interlevel_loss_mult * interlevel_loss(
+                    outputs[f"weights_list{s}"], outputs[f"ray_samples_list{s}"]
                 )
+                assert metrics_dict is not None and "distortion" in metrics_dict
+                loss_dict["distortion_loss"] += self.config.distortion_loss_mult * metrics_dict["distortion"]
+                if self.config.predict_normals:
+                    # orientation loss for computed normals
+                    loss_dict["orientation_loss"] += self.config.orientation_loss_mult * torch.mean(
+                        outputs[f"rendered_orientation_loss{s}"]
+                    )
+
+                    # ground truth supervision for normals
+                    loss_dict["pred_normal_loss"] += self.config.pred_normal_loss_mult * torch.mean(
+                        outputs[f"rendered_pred_normal_loss{s}"]
+                    )
             # Add loss from camera optimizer
             self.camera_optimizer.get_loss_dict(loss_dict)
         return loss_dict
 
+    def get_param_groups(self) -> Dict[str, List[Parameter]]:
+        param_groups = super().get_param_groups()
+        if self.config.separate_rgbt_densities:
+            param_groups["proposal_networks"] += list(self.proposal_networks_thermal.parameters())
+            param_groups["fields"] += list(self.field_thermal.parameters())
+            # param_groups["fields_thermal"] = list(self.field_thermal.parameters())
+        return param_groups
+
     def get_outputs(self, ray_bundle: RayBundle):
-        outputs = super().get_outputs(ray_bundle)
-        rgbt = outputs["rgb"]
-        outputs["rgb_actual"] = rgbt[..., :3]
-        outputs["thermal"] = rgbt[..., 3:]
+        # apply the camera optimizer pose tweaks
+        if self.training:
+            self.camera_optimizer.apply_to_raybundle(ray_bundle)
+
+        ray_samples: RaySamples
+        ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
+
+        outputs = super()._get_outputs(ray_bundle, self.field, self.renderer_rgb,
+                                       ray_samples, weights_list, ray_samples_list)
+        # rgbt = outputs["rgb"]
+        # outputs["rgb_actual"] = rgbt[..., :3]
+        # outputs["thermal"] = rgbt[..., 3:]
+        if self.config.separate_rgbt_densities:
+            ray_samples: RaySamples
+            ray_samples, weights_list, ray_samples_list = self.proposal_sampler_thermal(
+                ray_bundle, density_fns=self.density_fns_thermal
+            )
+            thermal_outputs = super()._get_outputs(
+                ray_bundle, self.field_thermal, self.renderer_thermal, ray_samples,
+                weights_list, ray_samples_list
+            )
+            for k, v in thermal_outputs.items():
+                outputs[f"{k}_thermal"] = v
         return outputs
 
     def get_image_metrics_and_images(
@@ -134,6 +281,7 @@ class ThermalNerfactoModel(NerfactoModel):
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         gt_rgb = batch["image"].to(self.device)
         predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
+        # FIXME: separate rgb/t
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb, batch["is_thermal"])
         acc = colormaps.apply_colormap(outputs["accumulation"])
         depth = colormaps.apply_depth_colormap(

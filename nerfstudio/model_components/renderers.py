@@ -78,19 +78,19 @@ class RGBRenderer(nn.Module):
         background_color: Background color as RGB. Uses random colors if None.
     """
 
-    def __init__(self, background_color: BackgroundColor = "random") -> None:
+    def __init__(self, background_color: BackgroundColor = "random", num_channels: int = 3) -> None:
         super().__init__()
         self.background_color: BackgroundColor = background_color
+        self.num_channels = num_channels
 
-    @classmethod
     def combine_rgb(
-        cls,
-        rgb: Float[Tensor, "*bs num_samples 3"],
+        self,
+        rgb: Float[Tensor, "*bs num_samples num_channels"],
         weights: Float[Tensor, "*bs num_samples 1"],
         background_color: BackgroundColor = "random",
         ray_indices: Optional[Int[Tensor, "num_samples"]] = None,
         num_rays: Optional[int] = None,
-    ) -> Float[Tensor, "*bs 3"]:
+    ) -> Float[Tensor, "*bs num_channels"]:
         """Composite samples along ray and render color image.
         If background color is random, no BG color is added - as if the background was black!
 
@@ -126,16 +126,15 @@ class RGBRenderer(nn.Module):
         elif background_color == "last_sample":
             # Note, this is only supported for non-packed samples.
             background_color = rgb[..., -1, :]
-        background_color = cls.get_background_color(background_color, shape=comp_rgb.shape, device=comp_rgb.device)
+        background_color = self.get_background_color(background_color, shape=comp_rgb.shape, device=comp_rgb.device)
 
         assert isinstance(background_color, torch.Tensor)
         comp_rgb = comp_rgb + background_color * (1.0 - accumulated_weight)
         return comp_rgb
 
-    @classmethod
     def get_background_color(
-        cls, background_color: BackgroundColor, shape: Tuple[int, ...], device: torch.device
-    ) -> Union[Float[Tensor, "3"], Float[Tensor, "*bs 3"]]:
+        self, background_color: BackgroundColor, shape: Tuple[int, ...], device: torch.device
+    ) -> Union[Float[Tensor, "num_channels"], Float[Tensor, "*bs num_channels"]]:
         """Returns the RGB background color for a specified background color.
         Note:
             This function CANNOT be called for background_color being either "last_sample" or "random".
@@ -149,7 +148,7 @@ class RGBRenderer(nn.Module):
             Background color as RGB.
         """
         assert background_color not in {"last_sample", "random"}
-        assert shape[-1] == 3, "Background color must be RGB."
+        assert shape[-1] == self.num_channels, "Background color must be RGB."
         if BACKGROUND_COLOR_OVERRIDE is not None:
             background_color = BACKGROUND_COLOR_OVERRIDE
         if isinstance(background_color, str) and background_color in colors.COLORS_DICT:
@@ -163,7 +162,7 @@ class RGBRenderer(nn.Module):
         self,
         image: Tensor,
         background_color: Optional[BackgroundColor] = None,
-    ) -> Float[Tensor, "*bs 3"]:
+    ) -> Float[Tensor, "*bs num_channels"]:
         """Blends the background color into the image if image is RGBA.
         Otherwise no blending is performed (we assume opacity of 1).
 
@@ -175,10 +174,10 @@ class RGBRenderer(nn.Module):
         Returns:
             Blended RGB.
         """
-        if image.size(-1) < 4:
+        if image.size(-1) < self.num_channels + 1:
             return image
 
-        rgb, opacity = image[..., :3], image[..., 3:]
+        rgb, opacity = image[..., :self.num_channels], image[..., self.num_channels:]
         if background_color is None:
             background_color = self.background_color
             if background_color in {"last_sample", "random"}:
@@ -214,12 +213,12 @@ class RGBRenderer(nn.Module):
 
     def forward(
         self,
-        rgb: Float[Tensor, "*bs num_samples 3"],
+        rgb: Float[Tensor, "*bs num_samples num_channels"],
         weights: Float[Tensor, "*bs num_samples 1"],
         ray_indices: Optional[Int[Tensor, "num_samples"]] = None,
         num_rays: Optional[int] = None,
         background_color: Optional[BackgroundColor] = None,
-    ) -> Float[Tensor, "*bs 3"]:
+    ) -> Float[Tensor, "*bs num_channels"]:
         """Composite samples along ray and render color image
 
         Args:
@@ -399,7 +398,7 @@ class RGBTRenderer(nn.Module):
             ray_indices: Optional[Int[Tensor, "num_samples"]] = None,
             num_rays: Optional[int] = None,
             background_color: Optional[BackgroundColor] = None,
-    ) -> Float[Tensor, "*bs 3"]:
+    ) -> Float[Tensor, "*bs 3"]:  # XXX: should this be 4 instead of 3?
         """Composite samples along ray and render color image
 
         Args:

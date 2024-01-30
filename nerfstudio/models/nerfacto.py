@@ -23,6 +23,7 @@ from typing import Dict, List, Literal, Tuple, Type
 
 import numpy as np
 import torch
+from torch import nn
 from torch.nn import Parameter
 from torchmetrics.functional import structural_similarity_index_measure
 from torchmetrics.image import PeakSignalNoiseRatio
@@ -285,13 +286,16 @@ class NerfactoModel(Model):
             )
         return callbacks
 
-    def get_outputs(self, ray_bundle: RayBundle):
-        # apply the camera optimizer pose tweaks
-        if self.training:
-            self.camera_optimizer.apply_to_raybundle(ray_bundle)
-        ray_samples: RaySamples
-        ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
-        field_outputs = self.field.forward(ray_samples, compute_normals=self.config.predict_normals)
+    def _get_outputs(
+            self,
+            ray_bundle: RayBundle,
+            field: NerfactoField,
+            renderer: nn.Module,
+            ray_samples: RaySamples,
+            weights_list: List,
+            ray_samples_list: List,
+    ):
+        field_outputs = field.forward(ray_samples, compute_normals=self.config.predict_normals)
         if self.config.use_gradient_scaling:
             field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
 
@@ -299,7 +303,7 @@ class NerfactoModel(Model):
         weights_list.append(weights)
         ray_samples_list.append(ray_samples)
 
-        rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
+        rgb = renderer(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
         with torch.no_grad():
             depth = self.renderer_depth(weights=weights, ray_samples=ray_samples)
         expected_depth = self.renderer_expected_depth(weights=weights, ray_samples=ray_samples)
@@ -310,6 +314,7 @@ class NerfactoModel(Model):
             "accumulation": accumulation,
             "depth": depth,
             "expected_depth": expected_depth,
+            "density": field_outputs[FieldHeadNames.DENSITY],
         }
 
         if self.config.predict_normals:
@@ -335,6 +340,17 @@ class NerfactoModel(Model):
 
         for i in range(self.config.num_proposal_iterations):
             outputs[f"prop_depth_{i}"] = self.renderer_depth(weights=weights_list[i], ray_samples=ray_samples_list[i])
+        return outputs
+
+    def get_outputs(self, ray_bundle: RayBundle):
+        # apply the camera optimizer pose tweaks
+        # NOTE: moved this part to wrapper function so it doesn't mutate this if called on same ray_bundle?
+        if self.training:
+            self.camera_optimizer.apply_to_raybundle(ray_bundle)
+        ray_samples: RaySamples
+        ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
+        outputs = self._get_outputs(ray_bundle, self.field, self.renderer_rgb,
+                                    ray_samples, weights_list, ray_samples_list)
         return outputs
 
     def get_metrics_dict(self, outputs, batch):
