@@ -7,6 +7,7 @@ from torch import Tensor
 from torch.nn import Parameter
 
 from nerfstudio.cameras.rays import RayBundle, RaySamples
+from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.density_fields import HashMLPDensityField
 from nerfstudio.fields.thermal_nerfacto_field import ThermalNerfactoField
@@ -17,6 +18,7 @@ from nerfstudio.model_components.losses import (
     interlevel_loss,
     MSELoss,
     MSELossRGBT,
+    scale_gradients_by_distance_squared,
     ssim_rgbt,
     L1Loss,
     LearnedPerceptualImagePatchSimilarityRGBT,
@@ -30,7 +32,7 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Thermal Nerfacto Model Config"""
 
     _target: Type = field(default_factory=lambda: ThermalNerfactoModel)
-    density_loss_mult: float = 0.001
+    density_loss_mult: float = 1e-3
     """Density loss (L1 norm of [rgb density] - [thermal density]) multiplier."""
     separate_rgbt_densities: bool = True  # XXX: currently only uses RGB info if False (should treat as naive RGBT)
     """Whether to treat RGB and thermal densities as separate."""
@@ -214,7 +216,13 @@ class ThermalNerfactoModel(NerfactoModel):
             )
         # rgbt_loss = self.rgbt_loss(gt_rgb, pred_rgb, batch["is_thermal"])
         # assert torch.allclose(rgbt_loss, loss_dict["rgb_loss"] + loss_dict["thermal_loss"])
-        # loss_dict["density_loss"] = 1e-3 * self.density_loss(outputs["density"], outputs["density_thermal"])
+
+        if self.config.separate_rgbt_densities and self.config.density_loss_mult > 0:
+            loss_dict["density_loss"] = self.config.density_loss_mult * self.density_loss(
+                outputs["density2"], outputs["density_thermal"])
+            loss_dict["density_loss"] += self.config.density_loss_mult * self.density_loss(
+                outputs["density"], outputs["density2_thermal"])
+
         if self.training:
             loss_dict["interlevel_loss"] = 0
             loss_dict["distortion_loss"] = 0
@@ -245,9 +253,10 @@ class ThermalNerfactoModel(NerfactoModel):
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         param_groups = super().get_param_groups()
         if self.config.separate_rgbt_densities:
-            param_groups["proposal_networks"] += list(self.proposal_networks_thermal.parameters())
-            param_groups["fields"] += list(self.field_thermal.parameters())
-            # param_groups["fields_thermal"] = list(self.field_thermal.parameters())
+            # param_groups["proposal_networks"] += list(self.proposal_networks_thermal.parameters())
+            # param_groups["fields"] += list(self.field_thermal.parameters())
+            param_groups["proposal_networks_thermal"] = list(self.proposal_networks_thermal.parameters())
+            param_groups["fields_thermal"] = list(self.field_thermal.parameters())
         return param_groups
 
     def get_outputs(self, ray_bundle: RayBundle):
@@ -264,16 +273,30 @@ class ThermalNerfactoModel(NerfactoModel):
         # outputs["rgb_actual"] = rgbt[..., :3]
         # outputs["thermal"] = rgbt[..., 3:]
         if self.config.separate_rgbt_densities:
-            ray_samples: RaySamples
-            ray_samples, weights_list, ray_samples_list = self.proposal_sampler_thermal(
-                ray_bundle, density_fns=self.density_fns_thermal
-            )
+            # Thermal outputs
+            ray_samples_thermal: RaySamples
+            ray_samples_thermal, weights_list_thermal, ray_samples_list_thermal = \
+                self.proposal_sampler_thermal(ray_bundle, density_fns=self.density_fns_thermal)
             thermal_outputs = super()._get_outputs(
-                ray_bundle, self.field_thermal, self.renderer_thermal, ray_samples,
-                weights_list, ray_samples_list
+                ray_bundle, self.field_thermal, self.renderer_thermal,
+                ray_samples_thermal, weights_list_thermal, ray_samples_list_thermal
             )
             for k, v in thermal_outputs.items():
                 outputs[f"{k}_thermal"] = v
+
+            if self.config.density_loss_mult > 0:
+                # Sample rays w/ rgb + thermal fields in same regions for density regularizer
+                #   density2 corresponds to same raysamples as density_thermal (and vice versa)
+                field_outputs = self.field.forward(ray_samples_thermal, compute_normals=self.config.predict_normals)
+                if self.config.use_gradient_scaling:
+                    field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
+                outputs["density2"] = field_outputs[FieldHeadNames.DENSITY]
+
+                field_outputs = self.field_thermal.forward(ray_samples, compute_normals=self.config.predict_normals)
+                if self.config.use_gradient_scaling:
+                    field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
+                outputs["density2_thermal"] = field_outputs[FieldHeadNames.DENSITY]
+
         return outputs
 
     def get_image_metrics_and_images(
@@ -289,9 +312,20 @@ class ThermalNerfactoModel(NerfactoModel):
             accumulation=outputs["accumulation"],
         )
 
-        combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
-        combined_acc = torch.cat([acc], dim=1)
-        combined_depth = torch.cat([depth], dim=1)
+        if self.config.separate_rgbt_densities:
+            combined_rgb = torch.cat([gt_rgb, predicted_rgb, outputs["rgb_thermal"].expand(-1, -1, 3)], dim=1)
+            combined_acc = torch.cat([acc, colormaps.apply_colormap(outputs["accumulation_thermal"])], dim=1)
+            combined_depth = torch.cat([
+                depth,
+                colormaps.apply_depth_colormap(
+                    outputs["depth_thermal"],
+                    accumulation=outputs["accumulation_thermal"],
+                )
+            ], dim=1)
+        else:
+            combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
+            combined_acc = torch.cat([acc], dim=1)
+            combined_depth = torch.cat([depth], dim=1)
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
         gt_rgb = torch.moveaxis(gt_rgb, -1, 0)[None, ...]
