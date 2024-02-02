@@ -32,10 +32,10 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Thermal Nerfacto Model Config"""
 
     _target: Type = field(default_factory=lambda: ThermalNerfactoModel)
-    density_loss_mult: float = 1e-3
+    density_loss_mult: float = 1e-3  # NOTE: 1e-6 is good
     """Density loss (L1 norm of [rgb density] - [thermal density]) multiplier."""
-    separate_rgbt_densities: bool = True  # XXX: currently only uses RGB info if False (should treat as naive RGBT)
-    """Whether to treat RGB and thermal densities as separate."""
+    density_mode: Literal["rgb_only", "shared", "separate"] = "separate"
+    """How to treat density between RGB/T (rgb_only only reconstructs RGB field)."""
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -59,7 +59,7 @@ class ThermalNerfactoModel(NerfactoModel):
         else:
             scene_contraction = SceneContraction(order=float("inf"))
 
-        if self.config.separate_rgbt_densities:
+        if self.config.density_mode == "separate":
             self.output_suffixes = ("", "_thermal")
         else:
             self.output_suffixes = ("",)
@@ -81,9 +81,9 @@ class ThermalNerfactoModel(NerfactoModel):
             use_average_appearance_embedding=self.config.use_average_appearance_embedding,
             appearance_embedding_dim=self.config.appearance_embed_dim,
             implementation=self.config.implementation,
-            num_channels=3,
+            num_channels=3 + (self.config.density_mode == "shared"),
         )
-        if self.config.separate_rgbt_densities:
+        if self.config.density_mode == "separate":
             self.field_thermal = ThermalNerfactoField(
                 self.scene_box.aabb,
                 hidden_dim=self.config.hidden_dim,
@@ -171,10 +171,19 @@ class ThermalNerfactoModel(NerfactoModel):
         metrics_dict = {}
         gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
         gt_rgb = self.renderer_rgbt.blend_background(gt_rgb, batch["is_thermal"])  # Blend if RGBA
+
         predicted_rgb = outputs["rgb"]
-        # FIXME: separate rgb/t
-        # TODO: add psnr_rgb and psnr_thermal metrics (see: get_image_metrics_and_images)
         # metrics_dict["psnr"] = self.psnr(predicted_rgb, gt_rgb, batch["is_thermal"])
+        metrics_dict["psnr_rgb"] = self.psnr(
+            gt_rgb[..., :3] * (1 - batch["is_thermal"])[:, None],
+            predicted_rgb * (1 - batch["is_thermal"])[:, None]
+        )
+        if not self.config.density_mode == "rgb_only":
+            predicted_thermal = outputs["rgb_thermal"]
+            metrics_dict["psnr_thermal"] = self.psnr(
+                gt_rgb[..., 3:] * batch["is_thermal"][:, None],
+                predicted_thermal * batch["is_thermal"][:, None]
+            )
 
         if self.training:
             metrics_dict["distortion"] = 0
@@ -190,7 +199,7 @@ class ThermalNerfactoModel(NerfactoModel):
         loss_dict = {}
         image = batch["image"].to(self.device)
 
-        if self.config.separate_rgbt_densities:
+        if not self.config.density_mode == "rgb_only":
             pred_rgb, gt_rgb = self.renderer_rgbt.blend_background_for_loss_computation(
                 pred_image=torch.cat((outputs["rgb"], outputs["rgb_thermal"]), dim=1),
                 pred_accumulation=outputs["accumulation"],  # XXX: which accumulation should this be?
@@ -209,7 +218,7 @@ class ThermalNerfactoModel(NerfactoModel):
             gt_rgb[..., :3] * (1 - batch["is_thermal"])[:, None],
             pred_rgb[..., :3] * (1 - batch["is_thermal"])[:, None]
         )
-        if self.config.separate_rgbt_densities:
+        if not self.config.density_mode == "rgb_only":
             loss_dict["thermal_loss"] = self.rgb_loss(
                 gt_rgb[..., 3:] * batch["is_thermal"][:, None],
                 pred_rgb[..., 3:] * batch["is_thermal"][:, None]
@@ -217,7 +226,7 @@ class ThermalNerfactoModel(NerfactoModel):
         # rgbt_loss = self.rgbt_loss(gt_rgb, pred_rgb, batch["is_thermal"])
         # assert torch.allclose(rgbt_loss, loss_dict["rgb_loss"] + loss_dict["thermal_loss"])
 
-        if self.config.separate_rgbt_densities and self.config.density_loss_mult > 0:
+        if self.config.density_mode == "separate" and self.config.density_loss_mult > 0:
             loss_dict["density_loss"] = self.config.density_loss_mult * self.density_loss(
                 outputs["density2"], outputs["density_thermal"])
             loss_dict["density_loss"] += self.config.density_loss_mult * self.density_loss(
@@ -252,7 +261,7 @@ class ThermalNerfactoModel(NerfactoModel):
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         param_groups = super().get_param_groups()
-        if self.config.separate_rgbt_densities:
+        if self.config.density_mode == "separate":
             # param_groups["proposal_networks"] += list(self.proposal_networks_thermal.parameters())
             # param_groups["fields"] += list(self.field_thermal.parameters())
             param_groups["proposal_networks_thermal"] = list(self.proposal_networks_thermal.parameters())
@@ -267,12 +276,20 @@ class ThermalNerfactoModel(NerfactoModel):
         ray_samples: RaySamples
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
 
-        outputs = super()._get_outputs(ray_bundle, self.field, self.renderer_rgb,
+        renderer_rgb = self.renderer_rgb
+        if self.config.density_mode == "shared":
+            renderer_rgb = self.renderer_rgbt
+
+        outputs = super()._get_outputs(ray_bundle, self.field, renderer_rgb,
                                        ray_samples, weights_list, ray_samples_list)
-        # rgbt = outputs["rgb"]
-        # outputs["rgb_actual"] = rgbt[..., :3]
-        # outputs["thermal"] = rgbt[..., 3:]
-        if self.config.separate_rgbt_densities:
+
+        if self.config.density_mode == "shared":
+            rgbt = outputs["rgb"]
+            outputs["rgbt"] = rgbt
+            outputs["rgb"] = rgbt[..., :3]
+            outputs["rgb_thermal"] = rgbt[..., 3:]
+
+        elif self.config.density_mode == "separate":
             # Thermal outputs
             ray_samples_thermal: RaySamples
             ray_samples_thermal, weights_list_thermal, ray_samples_list_thermal = \
@@ -312,7 +329,7 @@ class ThermalNerfactoModel(NerfactoModel):
             accumulation=outputs["accumulation"],
         )
 
-        if self.config.separate_rgbt_densities:
+        if self.config.density_mode == "separate":
             combined_rgb = torch.cat([gt_rgb, predicted_rgb, outputs["rgb_thermal"].expand(-1, -1, 3)], dim=1)
             combined_acc = torch.cat([acc, colormaps.apply_colormap(outputs["accumulation_thermal"])], dim=1)
             combined_depth = torch.cat([
@@ -323,7 +340,10 @@ class ThermalNerfactoModel(NerfactoModel):
                 )
             ], dim=1)
         else:
-            combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
+            if self.config.density_mode == "rgb_only":
+                combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
+            else:
+                combined_rgb = torch.cat([gt_rgb, predicted_rgb, outputs["rgb_thermal"].expand(-1, -1, 3)], dim=1)
             combined_acc = torch.cat([acc], dim=1)
             combined_depth = torch.cat([depth], dim=1)
 
@@ -334,14 +354,15 @@ class ThermalNerfactoModel(NerfactoModel):
         # psnr = self.psnr(gt_rgb, predicted_rgb, batch["is_thermal"])
         # ssim = self.ssim(gt_rgb, predicted_rgb, batch["is_thermal"])
         # lpips = self.lpips(gt_rgb, predicted_rgb, batch["is_thermal"])
-
         psnr_rgb = Tensor([-1])
         psnr_thermal = Tensor([-1])
         if not hasattr(batch["is_thermal"], "__len__"):  # HACK: want better extension to if is_thermal is tensor
             if batch["is_thermal"] < 1:
-                psnr_rgb = self.psnr(gt_rgb[:, :3, :, :], predicted_rgb[:, :3, :, :])
-            else:
-                psnr_thermal = self.psnr(gt_rgb[:, 3:, :, :], predicted_rgb[:, 3:, :, :])
+                psnr_rgb = self.psnr(gt_rgb[:, :3, :, :], predicted_rgb)
+            elif not self.config.density_mode == "rgb_only":
+                predicted_thermal = outputs["rgb_thermal"]
+                predicted_thermal = torch.moveaxis(predicted_thermal, -1, 0)[None, ...]
+                psnr_thermal = self.psnr(gt_rgb[:, 3:, :, :], predicted_thermal)
 
         # all of these metrics will be logged as scalars
         # metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
