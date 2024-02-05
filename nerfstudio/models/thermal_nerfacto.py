@@ -22,8 +22,10 @@ from nerfstudio.model_components.losses import (
     ssim_rgbt,
     L1Loss,
     LearnedPerceptualImagePatchSimilarityRGBT,
+    compute_TVloss,  # PXY
 )
 from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig
+from nerfstudio.fields.nerfacto_field import NerfactoField
 from nerfstudio.utils import colormaps
 
 
@@ -162,6 +164,8 @@ class ThermalNerfactoModel(NerfactoModel):
         self.rgbt_loss = MSELossRGBT()
         self.density_loss = L1Loss()
 
+        self.tvloss = compute_TVloss
+
         # metrics
         # XXX: these are untested, but not strictly necessary for model to train
         self.ssim = ssim_rgbt
@@ -214,6 +218,9 @@ class ThermalNerfactoModel(NerfactoModel):
                 is_thermal=batch["is_thermal"],
             )
 
+        nfield = NerfactoField(self.scene_box.aabb,self.num_train_data)
+        num_samples = int(5) # any choice of number
+        loss_dict["tv_loss"] = self.tvloss(nfield.get_density_only(num_points=num_samples), num_samples=num_samples)
         loss_dict["rgb_loss"] = self.rgb_loss(
             gt_rgb[..., :3] * (1 - batch["is_thermal"])[:, None],
             pred_rgb[..., :3] * (1 - batch["is_thermal"])[:, None]
