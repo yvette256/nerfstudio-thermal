@@ -38,7 +38,7 @@ from nerfstudio.field_components.field_heads import (
 from nerfstudio.field_components.mlp import MLP
 from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.base_field import Field, get_normalized_directions
-from nerfstudio.model_components.testfile import sample_and_scale_points
+from nerfstudio.model_components.sample_points import sample_and_scale_points
 
 
 class NerfactoField(Field):
