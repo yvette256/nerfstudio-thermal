@@ -38,7 +38,6 @@ from nerfstudio.field_components.field_heads import (
 from nerfstudio.field_components.mlp import MLP
 from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.base_field import Field, get_normalized_directions
-from nerfstudio.model_components.sample_points import sample_and_scale_points
 
 
 class NerfactoField(Field):
@@ -201,6 +200,9 @@ class NerfactoField(Field):
             out_activation=nn.Sigmoid(),
             implementation=implementation,
         )
+        # self.tsdf_voxel = TSDF  # PXY Feb 6 # might not be needed cause not calling function here
+        # self.voxelSize = self.tsdf_voxel.voxel_size
+
 
     def get_density(self, ray_samples: RaySamples) -> Tuple[Tensor, Tensor]:
         """Computes and returns the densities."""
@@ -228,9 +230,45 @@ class NerfactoField(Field):
         density = density * selector[..., None]
         return density, base_mlp_out
 
+    def sample_and_scale_points(self, num_points, aabb, spacing):
+        """
 
-    def get_density_only(self, num_points):
-        positions = sample_and_scale_points(num_points, -self.aabb, self.aabb, spacing=5)
+        Args:
+            num_points: number of samples
+            aabb: aabb
+            spacing: distance between neighbor and sample point
+
+        Returns:
+
+        """
+        sampled_points = torch.rand(num_points, 3)
+        sampled_points = sampled_points.cuda()
+
+        min_aabb = aabb[0].cuda()
+        max_aabb = aabb[1].cuda()
+        scaled_points = (min_aabb + (max_aabb - min_aabb) * sampled_points).cuda()
+        width = torch.Tensor((aabb[1] - aabb[0]) / spacing).cuda()
+
+        nb1 = torch.Tensor((1, 0, 0)).cuda()
+        nb2 = torch.Tensor((-1, 0, 0)).cuda()
+        nb3 = torch.Tensor((0, 1, 0)).cuda()
+        nb4 = torch.Tensor((0, -1, 0)).cuda()
+        nb5 = torch.Tensor((0, 0, 1)).cuda()
+        nb6 = torch.Tensor((0, 0, -1)).cuda()
+
+        neighbor1 = torch.sub(scaled_points, nb1 * width, alpha=1)
+        neighbor2 = torch.sub(scaled_points, nb2 * width, alpha=1)
+        neighbor3 = torch.sub(scaled_points, nb3 * width, alpha=1)
+        neighbor4 = torch.sub(scaled_points, nb4 * width, alpha=1)
+        neighbor5 = torch.sub(scaled_points, nb5 * width, alpha=1)
+        neighbor6 = torch.sub(scaled_points, nb6 * width, alpha=1)
+
+        all_points = torch.vstack((scaled_points, neighbor1, neighbor2, neighbor3, neighbor4, neighbor5, neighbor6))
+        all_points = all_points.cuda()
+        return all_points
+
+    def get_density_only(self, num_points, voxelSize):
+        positions = self.sample_and_scale_points(num_points, self.aabb, spacing=voxelSize)
         positions = positions
         selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
         positions = positions * selector[..., None]

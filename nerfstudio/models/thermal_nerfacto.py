@@ -25,7 +25,6 @@ from nerfstudio.model_components.losses import (
     compute_TVloss,  # PXY
 )
 from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig
-from nerfstudio.fields.nerfacto_field import NerfactoField
 from nerfstudio.utils import colormaps
 
 
@@ -199,6 +198,7 @@ class ThermalNerfactoModel(NerfactoModel):
         self.camera_optimizer.get_metrics_dict(metrics_dict)
         return metrics_dict
 
+
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         loss_dict = {}
         image = batch["image"].to(self.device)
@@ -218,9 +218,11 @@ class ThermalNerfactoModel(NerfactoModel):
                 is_thermal=batch["is_thermal"],
             )
 
-        nfield = NerfactoField(self.scene_box.aabb,self.num_train_data)
-        num_samples = int(5) # any choice of number
-        loss_dict["tv_loss"] = self.tvloss(nfield.get_density_only(num_points=num_samples), num_samples=num_samples)
+
+        num_samples = int(5000) # can be changed accordingly
+        lambda_tv = 1 # tuning parameter
+        loss_dict["tv_loss_combined"] = self.tvloss(self.field.get_density_only(num_points=num_samples, voxelSize = int(2048*lambda_tv)), num_samples=num_samples)
+        loss_dict["tv_loss_separated"] = self.tvloss(self.field_thermal.get_density_only(num_points=num_samples, voxelSize=int(2048*lambda_tv)), num_samples=num_samples)
         loss_dict["rgb_loss"] = self.rgb_loss(
             gt_rgb[..., :3] * (1 - batch["is_thermal"])[:, None],
             pred_rgb[..., :3] * (1 - batch["is_thermal"])[:, None]
