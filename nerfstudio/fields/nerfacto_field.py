@@ -238,9 +238,6 @@ class NerfactoField(Field):
 
         Returns:
 
-        TO DO:
-            vectorize things
-
         """
         sampled_points = torch.rand(num_points, 3).cuda()
 
