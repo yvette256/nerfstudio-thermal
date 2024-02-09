@@ -33,10 +33,12 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Thermal Nerfacto Model Config"""
 
     _target: Type = field(default_factory=lambda: ThermalNerfactoModel)
-    density_loss_mult: float = 1e-3  # NOTE: 1e-6 is good
+    density_loss_mult: float = 1e-6  # NOTE: 1e-6 is good
     """Density loss (L1 norm of [rgb density] - [thermal density]) multiplier."""
     density_mode: Literal["rgb_only", "shared", "separate"] = "separate"
     """How to treat density between RGB/T (rgb_only only reconstructs RGB field)."""
+    tv_rgb_loss_mult: float = 1e-2
+    tv_thermal_loss_mult: float = 1e-2
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -220,9 +222,16 @@ class ThermalNerfactoModel(NerfactoModel):
 
 
         num_samples = int(5000) # can be changed accordingly
-        lambda_tv = 1 # tuning parameter
-        loss_dict["tv_loss_combined"] = self.tvloss(self.field.get_density_only(num_points=num_samples, voxelSize = int(2048*lambda_tv)), num_samples=num_samples)
-        loss_dict["tv_loss_separated"] = self.tvloss(self.field_thermal.get_density_only(num_points=num_samples, voxelSize=int(2048*lambda_tv)), num_samples=num_samples)
+
+        if self.config.tv_rgb_loss_mult > 0:
+            loss_dict["tv_rgb_loss"] = self.config.tv_rgb_loss_mult * self.tvloss(
+                self.field.get_density_only(num_points=num_samples, voxel_size=self.config.max_res),
+                num_samples=num_samples)
+        if self.config.density_mode == "separate" and self.config.tv_thermal_loss_mult > 0:
+            loss_dict["tv_thermal_loss"] = self.config.tv_thermal_loss_mult * self.tvloss(
+                self.field_thermal.get_density_only(num_points=num_samples, voxel_size=self.config.max_res),
+                num_samples=num_samples)
+
         loss_dict["rgb_loss"] = self.rgb_loss(
             gt_rgb[..., :3] * (1 - batch["is_thermal"])[:, None],
             pred_rgb[..., :3] * (1 - batch["is_thermal"])[:, None]

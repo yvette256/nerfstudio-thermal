@@ -621,10 +621,9 @@ def compute_TVloss(densities, num_samples):
         average tv_loss over all sample points
 
     """
-    lambdaTV = 0
-    for i in range(len(densities[num_samples:])):
-        lambdaTV += torch.abs(torch.sub(densities[i+num_samples],densities[i%num_samples], alpha=1))
-    return float(lambdaTV / num_samples)
+    tile_index = torch.tile(densities[:num_samples], (int(densities[num_samples:].shape[0]/densities[:num_samples].shape[0]),1))
+    tvloss = torch.abs(torch.sub(densities[num_samples:],tile_index, alpha=1))
+    return torch.mean(tvloss)
 
 
 class LearnedPerceptualImagePatchSimilarityRGBT(nn.Module):
