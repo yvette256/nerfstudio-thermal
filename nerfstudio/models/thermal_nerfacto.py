@@ -22,6 +22,7 @@ from nerfstudio.model_components.losses import (
     ssim_rgbt,
     L1Loss,
     LearnedPerceptualImagePatchSimilarityRGBT,
+    compute_TVloss,  # PXY
 )
 from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig
 from nerfstudio.utils import colormaps
@@ -32,10 +33,12 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Thermal Nerfacto Model Config"""
 
     _target: Type = field(default_factory=lambda: ThermalNerfactoModel)
-    density_loss_mult: float = 1e-3  # NOTE: 1e-6 is good
+    density_loss_mult: float = 1e-6  # NOTE: 1e-6 is good
     """Density loss (L1 norm of [rgb density] - [thermal density]) multiplier."""
     density_mode: Literal["rgb_only", "shared", "separate"] = "separate"
     """How to treat density between RGB/T (rgb_only only reconstructs RGB field)."""
+    tv_rgb_loss_mult: float = 1e-2
+    tv_thermal_loss_mult: float = 1e-2
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -162,6 +165,8 @@ class ThermalNerfactoModel(NerfactoModel):
         self.rgbt_loss = MSELossRGBT()
         self.density_loss = L1Loss()
 
+        self.tvloss = compute_TVloss
+
         # metrics
         # XXX: these are untested, but not strictly necessary for model to train
         self.ssim = ssim_rgbt
@@ -195,6 +200,7 @@ class ThermalNerfactoModel(NerfactoModel):
         self.camera_optimizer.get_metrics_dict(metrics_dict)
         return metrics_dict
 
+
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         loss_dict = {}
         image = batch["image"].to(self.device)
@@ -213,6 +219,18 @@ class ThermalNerfactoModel(NerfactoModel):
                 gt_image=image,
                 is_thermal=batch["is_thermal"],
             )
+
+
+        num_samples = int(5000) # can be changed accordingly
+
+        if self.config.tv_rgb_loss_mult > 0:
+            loss_dict["tv_rgb_loss"] = self.config.tv_rgb_loss_mult * self.tvloss(
+                self.field.get_density_only(num_points=num_samples, voxel_size=self.config.max_res),
+                num_samples=num_samples)
+        if self.config.density_mode == "separate" and self.config.tv_thermal_loss_mult > 0:
+            loss_dict["tv_thermal_loss"] = self.config.tv_thermal_loss_mult * self.tvloss(
+                self.field_thermal.get_density_only(num_points=num_samples, voxel_size=self.config.max_res),
+                num_samples=num_samples)
 
         loss_dict["rgb_loss"] = self.rgb_loss(
             gt_rgb[..., :3] * (1 - batch["is_thermal"])[:, None],

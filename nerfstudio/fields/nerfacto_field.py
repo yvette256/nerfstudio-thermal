@@ -201,6 +201,7 @@ class NerfactoField(Field):
             implementation=implementation,
         )
 
+
     def get_density(self, ray_samples: RaySamples) -> Tuple[Tensor, Tensor]:
         """Computes and returns the densities."""
         if self.spatial_distortion is not None:
@@ -226,6 +227,47 @@ class NerfactoField(Field):
         density = trunc_exp(density_before_activation.to(positions))
         density = density * selector[..., None]
         return density, base_mlp_out
+
+    def sample_and_scale_points(self, num_points, aabb, spacing):
+        """
+
+        Args:
+            num_points: number of samples
+            aabb: aabb
+            spacing: distance between neighbor and sample point
+
+        Returns:
+
+        """
+        sampled_points = torch.rand(num_points, 3).cuda()
+
+        scaled_points = (aabb[0] + (aabb[1] - aabb[0]) * sampled_points).cuda()
+        width = torch.Tensor((aabb[1] - aabb[0]) / spacing).cuda()
+
+        neighbor1 = torch.sub(scaled_points, torch.Tensor((1, 0, 0)).cuda() * width, alpha=1)
+        neighbor2 = torch.sub(scaled_points, torch.Tensor((-1, 0, 0)).cuda() * width, alpha=1)
+        neighbor3 = torch.sub(scaled_points, torch.Tensor((0, 1, 0)).cuda() * width, alpha=1)
+        neighbor4 = torch.sub(scaled_points, torch.Tensor((0, -1, 0)).cuda() * width, alpha=1)
+        neighbor5 = torch.sub(scaled_points, torch.Tensor((0, 0, 1)).cuda() * width, alpha=1)
+        neighbor6 = torch.sub(scaled_points, torch.Tensor((0, 0, -1)).cuda() * width, alpha=1)
+
+        all_points = torch.vstack((scaled_points, neighbor1, neighbor2, neighbor3, neighbor4, neighbor5, neighbor6)).cuda()
+        return all_points
+
+    def get_density_only(self, num_points, voxel_size):
+        positions = self.sample_and_scale_points(num_points, self.aabb, spacing=voxel_size)
+        positions = positions
+        selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
+        positions = positions * selector[..., None]
+        self._sample_locations = positions
+        if not self._sample_locations.requires_grad:
+            self._sample_locations.requires_grad = True
+        positions_flat = positions.view(-1, 3)
+        h = self.mlp_base(positions_flat)
+        density_before_activation, base_mlp_out = torch.split(h, [1, self.geo_feat_dim], dim=-1)
+        self._density_before_activation = density_before_activation
+        density = trunc_exp(density_before_activation.to(positions))
+        return density
 
     def get_outputs(
         self, ray_samples: RaySamples, density_embedding: Optional[Tensor] = None

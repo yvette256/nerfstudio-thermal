@@ -18,6 +18,7 @@ Collection of Losses.
 from enum import Enum
 from typing import Dict, Literal, Optional, Tuple, Union, cast
 
+import numpy as np
 import torch
 from jaxtyping import Bool, Float
 from torch import Tensor, nn
@@ -54,11 +55,11 @@ PSEUDODEPTH_COMPATIBLE_LOSSES = (DepthLossType.SPARSENERF_RANKING,)
 
 
 def outer(
-    t0_starts: Float[Tensor, "*batch num_samples_0"],
-    t0_ends: Float[Tensor, "*batch num_samples_0"],
-    t1_starts: Float[Tensor, "*batch num_samples_1"],
-    t1_ends: Float[Tensor, "*batch num_samples_1"],
-    y1: Float[Tensor, "*batch num_samples_1"],
+        t0_starts: Float[Tensor, "*batch num_samples_0"],
+        t0_ends: Float[Tensor, "*batch num_samples_0"],
+        t1_starts: Float[Tensor, "*batch num_samples_1"],
+        t1_ends: Float[Tensor, "*batch num_samples_1"],
+        y1: Float[Tensor, "*batch num_samples_1"],
 ) -> Float[Tensor, "*batch num_samples_0"]:
     """Faster version of
 
@@ -86,10 +87,10 @@ def outer(
 
 
 def lossfun_outer(
-    t: Float[Tensor, "*batch num_samples_1"],
-    w: Float[Tensor, "*batch num_samples"],
-    t_env: Float[Tensor, "*batch num_samples_1"],
-    w_env: Float[Tensor, "*batch num_samples"],
+        t: Float[Tensor, "*batch num_samples_1"],
+        w: Float[Tensor, "*batch num_samples"],
+        t_env: Float[Tensor, "*batch num_samples_1"],
+        w_env: Float[Tensor, "*batch num_samples"],
 ):
     """
     https://github.com/kakaobrain/NeRF-Factory/blob/f61bb8744a5cb4820a4d968fb3bfbed777550f4a/src/model/mipnerf360/helper.py#L136
@@ -144,7 +145,7 @@ def lossfun_distortion(t, w):
     dut = torch.abs(ut[..., :, None] - ut[..., None, :])
     loss_inter = torch.sum(w * torch.sum(w[..., None, :] * dut, dim=-1), dim=-1)
 
-    loss_intra = torch.sum(w**2 * (t[..., 1:] - t[..., :-1]), dim=-1) / 3
+    loss_intra = torch.sum(w ** 2 * (t[..., 1:] - t[..., :-1]), dim=-1) / 3
 
     return loss_inter + loss_intra
 
@@ -158,9 +159,9 @@ def distortion_loss(weights_list, ray_samples_list):
 
 
 def nerfstudio_distortion_loss(
-    ray_samples: RaySamples,
-    densities: Optional[Float[Tensor, "*bs num_samples 1"]] = None,
-    weights: Optional[Float[Tensor, "*bs num_samples 1"]] = None,
+        ray_samples: RaySamples,
+        densities: Optional[Float[Tensor, "*bs num_samples 1"]] = None,
+        weights: Optional[Float[Tensor, "*bs num_samples 1"]] = None,
 ) -> Float[Tensor, "*bs 1"]:
     """Ray based distortion loss proposed in MipNeRF-360. Returns distortion Loss.
 
@@ -193,18 +194,18 @@ def nerfstudio_distortion_loss(
     midpoints = (starts + ends) / 2.0  # (..., num_samples, 1)
 
     loss = (
-        weights * weights[..., None, :, 0] * torch.abs(midpoints - midpoints[..., None, :, 0])
+            weights * weights[..., None, :, 0] * torch.abs(midpoints - midpoints[..., None, :, 0])
     )  # (..., num_samples, num_samples)
     loss = torch.sum(loss, dim=(-1, -2))[..., None]  # (..., num_samples)
-    loss = loss + 1 / 3.0 * torch.sum(weights**2 * (ends - starts), dim=-2)
+    loss = loss + 1 / 3.0 * torch.sum(weights ** 2 * (ends - starts), dim=-2)
 
     return loss
 
 
 def orientation_loss(
-    weights: Float[Tensor, "*bs num_samples 1"],
-    normals: Float[Tensor, "*bs num_samples 3"],
-    viewdirs: Float[Tensor, "*bs 3"],
+        weights: Float[Tensor, "*bs num_samples 1"],
+        normals: Float[Tensor, "*bs num_samples 3"],
+        viewdirs: Float[Tensor, "*bs 3"],
 ):
     """Orientation loss proposed in Ref-NeRF.
     Loss that encourages that all visible normals are facing towards the camera.
@@ -217,20 +218,20 @@ def orientation_loss(
 
 
 def pred_normal_loss(
-    weights: Float[Tensor, "*bs num_samples 1"],
-    normals: Float[Tensor, "*bs num_samples 3"],
-    pred_normals: Float[Tensor, "*bs num_samples 3"],
+        weights: Float[Tensor, "*bs num_samples 1"],
+        normals: Float[Tensor, "*bs num_samples 3"],
+        pred_normals: Float[Tensor, "*bs num_samples 3"],
 ):
     """Loss between normals calculated from density and normals from prediction network."""
     return (weights[..., 0] * (1.0 - torch.sum(normals * pred_normals, dim=-1))).sum(dim=-1)
 
 
 def ds_nerf_depth_loss(
-    weights: Float[Tensor, "*batch num_samples 1"],
-    termination_depth: Float[Tensor, "*batch 1"],
-    steps: Float[Tensor, "*batch num_samples 1"],
-    lengths: Float[Tensor, "*batch num_samples 1"],
-    sigma: Float[Tensor, "0"],
+        weights: Float[Tensor, "*batch num_samples 1"],
+        termination_depth: Float[Tensor, "*batch 1"],
+        steps: Float[Tensor, "*batch num_samples 1"],
+        lengths: Float[Tensor, "*batch num_samples 1"],
+        sigma: Float[Tensor, "0"],
 ) -> Float[Tensor, "*batch 1"]:
     """Depth loss from Depth-supervised NeRF (Deng et al., 2022).
 
@@ -251,11 +252,11 @@ def ds_nerf_depth_loss(
 
 
 def urban_radiance_field_depth_loss(
-    weights: Float[Tensor, "*batch num_samples 1"],
-    termination_depth: Float[Tensor, "*batch 1"],
-    predicted_depth: Float[Tensor, "*batch 1"],
-    steps: Float[Tensor, "*batch num_samples 1"],
-    sigma: Float[Tensor, "0"],
+        weights: Float[Tensor, "*batch num_samples 1"],
+        termination_depth: Float[Tensor, "*batch 1"],
+        predicted_depth: Float[Tensor, "*batch 1"],
+        steps: Float[Tensor, "*batch num_samples 1"],
+        sigma: Float[Tensor, "0"],
 ) -> Float[Tensor, "*batch 1"]:
     """Lidar losses from Urban Radiance Fields (Rematas et al., 2022).
 
@@ -282,7 +283,7 @@ def urban_radiance_field_depth_loss(
     line_of_sight_loss_near = (weights - torch.exp(target_distribution.log_prob(steps - termination_depth))) ** 2
     line_of_sight_loss_near = (line_of_sight_loss_near_mask * line_of_sight_loss_near).sum(-2)
     line_of_sight_loss_empty_mask = steps < termination_depth - sigma
-    line_of_sight_loss_empty = (line_of_sight_loss_empty_mask * weights**2).sum(-2)
+    line_of_sight_loss_empty = (line_of_sight_loss_empty_mask * weights ** 2).sum(-2)
     line_of_sight_loss = line_of_sight_loss_near + line_of_sight_loss_empty
 
     loss = (expected_depth_loss + line_of_sight_loss) * depth_mask
@@ -290,14 +291,14 @@ def urban_radiance_field_depth_loss(
 
 
 def depth_loss(
-    weights: Float[Tensor, "*batch num_samples 1"],
-    ray_samples: RaySamples,
-    termination_depth: Float[Tensor, "*batch 1"],
-    predicted_depth: Float[Tensor, "*batch 1"],
-    sigma: Float[Tensor, "0"],
-    directions_norm: Float[Tensor, "*batch 1"],
-    is_euclidean: bool,
-    depth_loss_type: DepthLossType,
+        weights: Float[Tensor, "*batch num_samples 1"],
+        ray_samples: RaySamples,
+        termination_depth: Float[Tensor, "*batch 1"],
+        predicted_depth: Float[Tensor, "*batch 1"],
+        sigma: Float[Tensor, "0"],
+        directions_norm: Float[Tensor, "*batch 1"],
+        is_euclidean: bool,
+        depth_loss_type: DepthLossType,
 ) -> Float[Tensor, "0"]:
     """Implementation of depth losses.
 
@@ -329,7 +330,7 @@ def depth_loss(
 
 
 def monosdf_normal_loss(
-    normal_pred: Float[Tensor, "num_samples 3"], normal_gt: Float[Tensor, "num_samples 3"]
+        normal_pred: Float[Tensor, "num_samples 3"], normal_gt: Float[Tensor, "num_samples 3"]
 ) -> Float[Tensor, "0"]:
     """
     Normal consistency loss proposed in monosdf - https://niujinshuchong.github.io/monosdf/
@@ -359,10 +360,10 @@ class MiDaSMSELoss(nn.Module):
         self.mse_loss = MSELoss(reduction="none")
 
     def forward(
-        self,
-        prediction: Float[Tensor, "1 32 mult"],
-        target: Float[Tensor, "1 32 mult"],
-        mask: Bool[Tensor, "1 32 mult"],
+            self,
+            prediction: Float[Tensor, "1 32 mult"],
+            target: Float[Tensor, "1 32 mult"],
+            mask: Bool[Tensor, "1 32 mult"],
     ) -> Float[Tensor, "0"]:
         """
         Args:
@@ -399,10 +400,10 @@ class GradientLoss(nn.Module):
         self.__scales = scales
 
     def forward(
-        self,
-        prediction: Float[Tensor, "1 32 mult"],
-        target: Float[Tensor, "1 32 mult"],
-        mask: Bool[Tensor, "1 32 mult"],
+            self,
+            prediction: Float[Tensor, "1 32 mult"],
+            target: Float[Tensor, "1 32 mult"],
+            mask: Bool[Tensor, "1 32 mult"],
     ) -> Float[Tensor, "0"]:
         """
         Args:
@@ -429,10 +430,10 @@ class GradientLoss(nn.Module):
         return total
 
     def gradient_loss(
-        self,
-        prediction: Float[Tensor, "1 32 mult"],
-        target: Float[Tensor, "1 32 mult"],
-        mask: Bool[Tensor, "1 32 mult"],
+            self,
+            prediction: Float[Tensor, "1 32 mult"],
+            target: Float[Tensor, "1 32 mult"],
+            mask: Bool[Tensor, "1 32 mult"],
     ) -> Float[Tensor, "0"]:
         """
         multiscale, scale-invariant gradient matching term to the disparity space.
@@ -485,10 +486,10 @@ class ScaleAndShiftInvariantLoss(nn.Module):
         self.__prediction_ssi = None
 
     def forward(
-        self,
-        prediction: Float[Tensor, "1 32 mult"],
-        target: Float[Tensor, "1 32 mult"],
-        mask: Bool[Tensor, "1 32 mult"],
+            self,
+            prediction: Float[Tensor, "1 32 mult"],
+            target: Float[Tensor, "1 32 mult"],
+            mask: Bool[Tensor, "1 32 mult"],
     ) -> Float[Tensor, "0"]:
         """
         Args:
@@ -551,8 +552,8 @@ class _GradientScaler(torch.autograd.Function):  # typing: ignore
 
 
 def scale_gradients_by_distance_squared(
-    field_outputs: Dict[FieldHeadNames, torch.Tensor],
-    ray_samples: RaySamples,
+        field_outputs: Dict[FieldHeadNames, torch.Tensor],
+        ray_samples: RaySamples,
 ) -> Dict[FieldHeadNames, torch.Tensor]:
     """
     Scale gradients by the ray distance to the pixel
@@ -607,6 +608,22 @@ def ssim_rgbt(
 ) -> Tensor:
     gt_rgbt = align_gt_with_pred_rgbt(gt_rgbt, pred_rgbt, is_thermal)
     return structural_similarity_index_measure(gt_rgbt, pred_rgbt)
+
+
+def compute_TVloss(densities, num_samples):
+    """
+    
+    Args:
+        densities:
+        num_samples:
+
+    Returns:
+        average tv_loss over all sample points
+
+    """
+    tile_index = torch.tile(densities[:num_samples], (int(densities[num_samples:].shape[0]/densities[:num_samples].shape[0]),1))
+    tvloss = torch.abs(torch.sub(densities[num_samples:],tile_index, alpha=1))
+    return torch.mean(tvloss)
 
 
 class LearnedPerceptualImagePatchSimilarityRGBT(nn.Module):
