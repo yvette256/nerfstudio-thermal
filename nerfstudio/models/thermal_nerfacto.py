@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Tuple, Type
 
@@ -7,6 +8,7 @@ from torch import Tensor
 from torch.nn import Parameter
 
 from nerfstudio.cameras.rays import RayBundle, RaySamples
+from nerfstudio.cameras.camera_optimizers import CameraOptimizer, CameraOptimizerConfig
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.density_fields import HashMLPDensityField
@@ -103,6 +105,20 @@ class ThermalNerfactoModel(NerfactoModel):
                 num_channels=1,
             )
 
+        self.camera_optimizer: CameraOptimizer = self.config.camera_optimizer.setup(
+            num_cameras=self.num_train_data, device="cpu",
+            non_trainable_camera_indices=torch.tensor(
+                [i for i, x in enumerate(self.kwargs['metadata']['is_thermal']) if x != 0],
+                dtype=torch.long),
+        )
+        self.camera_optimizer_thermal: CameraOptimizer = self.config.camera_optimizer.setup(
+            num_cameras=self.num_train_data, device="cpu",
+            non_trainable_camera_indices=torch.tensor(
+                [i for i, x in enumerate(self.kwargs['metadata']['is_thermal']) if x == 0],
+                dtype=torch.long),
+            suffix="_thermal",
+        )
+
         # Build the thermal proposal network
         self.density_fns_thermal = []
 
@@ -193,6 +209,8 @@ class ThermalNerfactoModel(NerfactoModel):
                 )
 
         self.camera_optimizer.get_metrics_dict(metrics_dict)
+        if self.config.density_mode == "separate":
+            self.camera_optimizer_thermal.get_metrics_dict(metrics_dict)
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
@@ -257,18 +275,25 @@ class ThermalNerfactoModel(NerfactoModel):
                     )
             # Add loss from camera optimizer
             self.camera_optimizer.get_loss_dict(loss_dict)
+            if self.config.density_mode == "separate":
+                self.camera_optimizer_thermal.get_loss_dict(loss_dict)
         return loss_dict
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         param_groups = super().get_param_groups()
         if self.config.density_mode == "separate":
-            # param_groups["proposal_networks"] += list(self.proposal_networks_thermal.parameters())
-            # param_groups["fields"] += list(self.field_thermal.parameters())
             param_groups["proposal_networks_thermal"] = list(self.proposal_networks_thermal.parameters())
             param_groups["fields_thermal"] = list(self.field_thermal.parameters())
+            self.camera_optimizer_thermal.get_param_groups(param_groups=param_groups,
+                                                           name="camera_opt_thermal")
         return param_groups
 
     def get_outputs(self, ray_bundle: RayBundle):
+        # NOTE: We need to copy ray_bundle separately since apparently the gradient
+        #  of the rgb camera pose adjustments isn't zero wrt thermal measurements
+        #  (idk if is is suspicious or not)
+        ray_bundle_thermal = copy.deepcopy(ray_bundle)
+
         # apply the camera optimizer pose tweaks
         if self.training:
             self.camera_optimizer.apply_to_raybundle(ray_bundle)
@@ -290,12 +315,16 @@ class ThermalNerfactoModel(NerfactoModel):
             outputs["rgb_thermal"] = rgbt[..., 3:]
 
         elif self.config.density_mode == "separate":
+            # apply the camera optimizer pose tweaks
+            if self.training:
+                self.camera_optimizer_thermal.apply_to_raybundle(ray_bundle_thermal)
+
             # Thermal outputs
             ray_samples_thermal: RaySamples
             ray_samples_thermal, weights_list_thermal, ray_samples_list_thermal = \
-                self.proposal_sampler_thermal(ray_bundle, density_fns=self.density_fns_thermal)
+                self.proposal_sampler_thermal(ray_bundle_thermal, density_fns=self.density_fns_thermal)
             thermal_outputs = super()._get_outputs(
-                ray_bundle, self.field_thermal, self.renderer_thermal,
+                ray_bundle_thermal, self.field_thermal, self.renderer_thermal,
                 ray_samples_thermal, weights_list_thermal, ray_samples_list_thermal
             )
             for k, v in thermal_outputs.items():
