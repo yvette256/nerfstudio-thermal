@@ -396,18 +396,17 @@ class VanillaPipeline(Pipeline):
         # average the metrics list
         metrics_dict = {}
         for key in metrics_dict_list[0].keys():
-            # FIXME: HACK: >-1 check here is probably no longer necessary
-            #  (if something similar gets added back, use a more explicit signal such as None)
             if get_std:
                 key_std, key_mean = torch.std_mean(
-                    torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list if metrics_dict[key] > -1])
+                    torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list
+                                  if key in metrics_dict])
                 )
                 metrics_dict[key] = float(key_mean)
                 metrics_dict[f"{key}_std"] = float(key_std)
             else:
                 metrics_dict[key] = float(
                     torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list
-                                             if metrics_dict[key] > -1]))
+                                             if key in metrics_dict]))
                 )
         self.train()
         return metrics_dict
