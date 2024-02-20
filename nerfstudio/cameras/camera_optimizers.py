@@ -105,6 +105,15 @@ class CameraOptimizer(nn.Module):
         else:
             assert_never(self.config.mode)
 
+        self.suffix = kwargs.get("suffix", "")
+        self.non_trainable_camera_filter = None
+        if self.non_trainable_camera_indices is not None:
+            self.non_trainable_camera_filter = torch.tensor(
+                [True if i in self.non_trainable_camera_indices else False for i in range(self.num_cameras)],
+                dtype=torch.bool,
+                device=device,
+            )
+
     def forward(
         self,
         indices: Int[Tensor, "camera_indices"],
@@ -127,11 +136,16 @@ class CameraOptimizer(nn.Module):
             outputs.append(exp_map_SE3(self.pose_adjustment[indices, :]))
         else:
             assert_never(self.config.mode)
+
         # Detach non-trainable indices by setting to identity transform
         if self.non_trainable_camera_indices is not None:
             if self.non_trainable_camera_indices.device != self.pose_adjustment.device:
                 self.non_trainable_camera_indices = self.non_trainable_camera_indices.to(self.pose_adjustment.device)
-            outputs[0][self.non_trainable_camera_indices] = torch.eye(4, device=self.pose_adjustment.device)[:3, :4]
+            # outputs[0][self.non_trainable_camera_indices] = torch.eye(4, device=self.pose_adjustment.device)[:3, :4]
+            if self.non_trainable_camera_filter.device != self.pose_adjustment.device:
+                self.non_trainable_camera_filter = self.non_trainable_camera_filter.to(self.pose_adjustment.device)
+            non_trainable_camera_filter = self.non_trainable_camera_filter[indices]
+            outputs[0][non_trainable_camera_filter] = torch.eye(4, device=self.pose_adjustment.device)[:3, :4]
 
         # Return: identity if no transforms are needed, otherwise multiply transforms together.
         if len(outputs) == 0:
@@ -149,7 +163,7 @@ class CameraOptimizer(nn.Module):
     def get_loss_dict(self, loss_dict: dict) -> None:
         """Add regularization"""
         if self.config.mode != "off":
-            loss_dict["camera_opt_regularizer"] = (
+            loss_dict[f"camera_opt_regularizer{self.suffix}"] = (
                 self.pose_adjustment[:, :3].norm(dim=-1).mean() * self.config.trans_l2_penalty
                 + self.pose_adjustment[:, 3:].norm(dim=-1).mean() * self.config.rot_l2_penalty
             )
@@ -161,14 +175,14 @@ class CameraOptimizer(nn.Module):
     def get_metrics_dict(self, metrics_dict: dict) -> None:
         """Get camera optimizer metrics"""
         if self.config.mode != "off":
-            metrics_dict["camera_opt_translation"] = self.pose_adjustment[:, :3].norm()
-            metrics_dict["camera_opt_rotation"] = self.pose_adjustment[:, 3:].norm()
+            metrics_dict[f"camera_opt_translation{self.suffix}"] = self.pose_adjustment[:, :3].norm()
+            metrics_dict[f"camera_opt_rotation{self.suffix}"] = self.pose_adjustment[:, 3:].norm()
 
-    def get_param_groups(self, param_groups: dict) -> None:
+    def get_param_groups(self, param_groups: dict, name: str = "camera_opt") -> None:
         """Get camera optimizer parameters"""
         camera_opt_params = list(self.parameters())
         if self.config.mode != "off":
             assert len(camera_opt_params) > 0
-            param_groups["camera_opt"] = camera_opt_params
+            param_groups[name] = camera_opt_params
         else:
             assert len(camera_opt_params) == 0
