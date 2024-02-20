@@ -189,16 +189,23 @@ class ThermalNerfactoModel(NerfactoModel):
         gt_rgb = self.renderer_rgbt.blend_background(gt_rgb, batch["is_thermal"])  # Blend if RGBA
 
         predicted_rgb = outputs["rgb"]
-        # metrics_dict["psnr"] = self.psnr(predicted_rgb, gt_rgb, batch["is_thermal"])
+        # metrics_dict["psnr_rgb"] = self.psnr(
+        #     gt_rgb[..., :3] * (1 - batch["is_thermal"])[:, None],
+        #     predicted_rgb * (1 - batch["is_thermal"])[:, None]
+        # )
         metrics_dict["psnr_rgb"] = self.psnr(
-            gt_rgb[..., :3] * (1 - batch["is_thermal"])[:, None],
-            predicted_rgb * (1 - batch["is_thermal"])[:, None]
+            gt_rgb[..., :3][(1 - batch["is_thermal"]).bool()],
+            predicted_rgb[(1 - batch["is_thermal"]).bool()]
         )
         if not self.config.density_mode == "rgb_only":
             predicted_thermal = outputs["rgb_thermal"]
+            # metrics_dict["psnr_thermal"] = self.psnr(
+            #     gt_rgb[..., 3:] * batch["is_thermal"][:, None],
+            #     predicted_thermal * batch["is_thermal"][:, None]
+            # )
             metrics_dict["psnr_thermal"] = self.psnr(
-                gt_rgb[..., 3:] * batch["is_thermal"][:, None],
-                predicted_thermal * batch["is_thermal"][:, None]
+                gt_rgb[..., 3:][batch["is_thermal"].bool()],
+                predicted_thermal[batch["is_thermal"].bool()]
             )
 
         if self.training:
@@ -350,7 +357,6 @@ class ThermalNerfactoModel(NerfactoModel):
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         gt_rgb = batch["image"].to(self.device)
         predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
-        # FIXME: separate rgb/t
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb, batch["is_thermal"])
         acc = colormaps.apply_colormap(outputs["accumulation"])
         depth = colormaps.apply_depth_colormap(
@@ -380,25 +386,24 @@ class ThermalNerfactoModel(NerfactoModel):
         gt_rgb = torch.moveaxis(gt_rgb, -1, 0)[None, ...]
         predicted_rgb = torch.moveaxis(predicted_rgb, -1, 0)[None, ...]
 
+        # all of these metrics will be logged as scalars
+        metrics_dict = {}  # type: ignore
+
         # psnr = self.psnr(gt_rgb, predicted_rgb, batch["is_thermal"])
         # ssim = self.ssim(gt_rgb, predicted_rgb, batch["is_thermal"])
         # lpips = self.lpips(gt_rgb, predicted_rgb, batch["is_thermal"])
-        psnr_rgb = Tensor([-1])
-        psnr_thermal = Tensor([-1])
         if not hasattr(batch["is_thermal"], "__len__"):  # HACK: want better extension to if is_thermal is tensor
             if batch["is_thermal"] < 1:
                 psnr_rgb = self.psnr(gt_rgb[:, :3, :, :], predicted_rgb)
+                metrics_dict["psnr_rgb"] = float(psnr_rgb.item())
             elif not self.config.density_mode == "rgb_only":
                 predicted_thermal = outputs["rgb_thermal"]
                 predicted_thermal = torch.moveaxis(predicted_thermal, -1, 0)[None, ...]
                 psnr_thermal = self.psnr(gt_rgb[:, 3:, :, :], predicted_thermal)
+                metrics_dict["psnr_thermal"] = float(psnr_thermal.item())
 
-        # all of these metrics will be logged as scalars
         # metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
-        metrics_dict = {}  # type: ignore
         # metrics_dict["lpips"] = float(lpips)
-        metrics_dict["psnr_rgb"] = float(psnr_rgb.item())
-        metrics_dict["psnr_thermal"] = float(psnr_thermal.item())
 
         images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
 
