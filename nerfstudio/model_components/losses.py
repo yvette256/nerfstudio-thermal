@@ -586,30 +586,6 @@ def depth_ranking_loss(rendered_depth, gt_depth):
     return torch.nanmean((out_diff[differing_signs] * torch.sign(out_diff[differing_signs])))
 
 
-class MSELossRGBT(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.mse_loss = MSELoss()
-
-    def forward(
-            self,
-            gt_rgbt: Float[Tensor, "*bs 4"],
-            pred_rgbt: Float[Tensor, "*bs 4"],
-            is_thermal: Float[Tensor, "*bs"],
-    ) -> Tensor:
-        gt_rgbt = align_gt_with_pred_rgbt(gt_rgbt, pred_rgbt, is_thermal)
-        return self.mse_loss(gt_rgbt, pred_rgbt)
-
-
-def ssim_rgbt(
-        gt_rgbt: Float[Tensor, "*bs 4"],
-        pred_rgbt: Float[Tensor, "*bs 4"],
-        is_thermal: Float[Tensor, "*bs"],
-) -> Tensor:
-    gt_rgbt = align_gt_with_pred_rgbt(gt_rgbt, pred_rgbt, is_thermal)
-    return structural_similarity_index_measure(gt_rgbt, pred_rgbt)
-
-
 def compute_TVloss(densities, num_samples):
     """
     
@@ -624,21 +600,3 @@ def compute_TVloss(densities, num_samples):
     tile_index = torch.tile(densities[:num_samples], (int(densities[num_samples:].shape[0]/densities[:num_samples].shape[0]),1))
     tvloss = torch.abs(torch.sub(densities[num_samples:],tile_index, alpha=1))
     return torch.mean(tvloss)
-
-
-class LearnedPerceptualImagePatchSimilarityRGBT(nn.Module):
-    def __init__(
-            self,
-            normalize: bool = False,
-    ):
-        super().__init__()
-        self.lpips = LearnedPerceptualImagePatchSimilarity(normalize=normalize)
-
-    def forward(
-            self,
-            gt_rgbt: Float[Tensor, "*bs 4"],
-            pred_rgbt: Float[Tensor, "*bs 4"],
-            is_thermal: Float[Tensor, "*bs"],
-    ) -> Tensor:
-        gt_rgbt = align_gt_with_pred_rgbt(gt_rgbt, pred_rgbt, is_thermal)
-        return self.lpips(gt_rgbt, pred_rgbt)

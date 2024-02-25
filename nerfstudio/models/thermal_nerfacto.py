@@ -19,11 +19,8 @@ from nerfstudio.model_components.losses import (
     distortion_loss,
     interlevel_loss,
     MSELoss,
-    MSELossRGBT,
     scale_gradients_by_distance_squared,
-    ssim_rgbt,
     L1Loss,
-    LearnedPerceptualImagePatchSimilarityRGBT,
     compute_TVloss,  # PXY
 )
 from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig
@@ -178,15 +175,8 @@ class ThermalNerfactoModel(NerfactoModel):
                                             num_channels=1)
 
         # losses
-        self.rgbt_loss = MSELossRGBT()
         self.density_loss = L1Loss()
-
         self.tvloss = compute_TVloss
-
-        # metrics
-        # XXX: these are untested, but not strictly necessary for model to train
-        self.ssim = ssim_rgbt
-        self.lpips = LearnedPerceptualImagePatchSimilarityRGBT(normalize=True)
 
     def get_metrics_dict(self, outputs, batch):
         metrics_dict = {}
@@ -194,20 +184,12 @@ class ThermalNerfactoModel(NerfactoModel):
         gt_rgb = self.renderer_rgbt.blend_background(gt_rgb, batch["is_thermal"])  # Blend if RGBA
 
         predicted_rgb = outputs["rgb"]
-        # metrics_dict["psnr_rgb"] = self.psnr(
-        #     gt_rgb[..., :3] * (1 - batch["is_thermal"])[:, None],
-        #     predicted_rgb * (1 - batch["is_thermal"])[:, None]
-        # )
         metrics_dict["psnr_rgb"] = self.psnr(
             gt_rgb[..., :3][(1 - batch["is_thermal"]).bool()],
             predicted_rgb[(1 - batch["is_thermal"]).bool()]
         )
         if not self.config.density_mode == "rgb_only":
             predicted_thermal = outputs["rgb_thermal"]
-            # metrics_dict["psnr_thermal"] = self.psnr(
-            #     gt_rgb[..., 3:] * batch["is_thermal"][:, None],
-            #     predicted_thermal * batch["is_thermal"][:, None]
-            # )
             metrics_dict["psnr_thermal"] = self.psnr(
                 gt_rgb[..., 3:][batch["is_thermal"].bool()],
                 predicted_thermal[batch["is_thermal"].bool()]
@@ -224,7 +206,6 @@ class ThermalNerfactoModel(NerfactoModel):
         if self.config.density_mode == "separate":
             self.camera_optimizer_thermal.get_metrics_dict(metrics_dict)
         return metrics_dict
-
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         loss_dict = {}
@@ -245,8 +226,7 @@ class ThermalNerfactoModel(NerfactoModel):
                 is_thermal=batch["is_thermal"],
             )
 
-
-        num_samples = int(5000) # can be changed accordingly
+        num_samples = int(5000)  # can be changed accordingly
 
         if self.config.tv_rgb_loss_mult > 0:
             loss_dict["tv_rgb_loss"] = self.config.tv_rgb_loss_mult * self.tvloss(
@@ -373,9 +353,10 @@ class ThermalNerfactoModel(NerfactoModel):
     def get_image_metrics_and_images(
             self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
-        gt_rgb = batch["image"].to(self.device)
+        gt = batch["image"].to(self.device)
         predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
-        gt_rgb = self.renderer_rgb.blend_background(gt_rgb, batch["is_thermal"])
+        gt = self.renderer_rgbt.blend_background(gt, batch["is_thermal"])
+        gt_rgb, gt_thermal = gt[..., :3], gt[..., 3:]
         acc = colormaps.apply_colormap(outputs["accumulation"])
         depth = colormaps.apply_depth_colormap(
             outputs["depth"],
@@ -383,7 +364,8 @@ class ThermalNerfactoModel(NerfactoModel):
         )
 
         if self.config.density_mode == "separate":
-            combined_rgb = torch.cat([gt_rgb, predicted_rgb, outputs["rgb_thermal"].expand(-1, -1, 3)], dim=1)
+            gt_img = gt_thermal.expand(-1, -1, 3) if batch["is_thermal"] else gt_rgb
+            combined_rgb = torch.cat([gt_img, predicted_rgb, outputs["rgb_thermal"].expand(-1, -1, 3)], dim=1)
             combined_acc = torch.cat([acc, colormaps.apply_colormap(outputs["accumulation_thermal"])], dim=1)
             combined_depth = torch.cat([
                 depth,
@@ -402,26 +384,33 @@ class ThermalNerfactoModel(NerfactoModel):
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
         gt_rgb = torch.moveaxis(gt_rgb, -1, 0)[None, ...]
+        gt_thermal = torch.moveaxis(gt_thermal, -1, 0)[None, ...]
         predicted_rgb = torch.moveaxis(predicted_rgb, -1, 0)[None, ...]
 
         # all of these metrics will be logged as scalars
         metrics_dict = {}  # type: ignore
 
-        # psnr = self.psnr(gt_rgb, predicted_rgb, batch["is_thermal"])
-        # ssim = self.ssim(gt_rgb, predicted_rgb, batch["is_thermal"])
-        # lpips = self.lpips(gt_rgb, predicted_rgb, batch["is_thermal"])
         if not hasattr(batch["is_thermal"], "__len__"):  # HACK: want better extension to if is_thermal is tensor
             if batch["is_thermal"] < 1:
-                psnr_rgb = self.psnr(gt_rgb[:, :3, :, :], predicted_rgb)
+                psnr_rgb = self.psnr(gt_rgb, predicted_rgb)
+                ssim_rgb = self.ssim(gt_rgb, predicted_rgb)
+                lpips_rgb = self.lpips(gt_rgb, predicted_rgb)
+
                 metrics_dict["psnr_rgb"] = float(psnr_rgb.item())
+                metrics_dict["ssim_rgb"] = float(ssim_rgb)
+                metrics_dict["lpips_rgb"] = float(lpips_rgb)
             elif not self.config.density_mode == "rgb_only":
                 predicted_thermal = outputs["rgb_thermal"]
                 predicted_thermal = torch.moveaxis(predicted_thermal, -1, 0)[None, ...]
-                psnr_thermal = self.psnr(gt_rgb[:, 3:, :, :], predicted_thermal)
-                metrics_dict["psnr_thermal"] = float(psnr_thermal.item())
 
-        # metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
-        # metrics_dict["lpips"] = float(lpips)
+                psnr_thermal = self.psnr(gt_thermal, predicted_thermal)
+                ssim_thermal = self.ssim(gt_thermal, predicted_thermal)
+                lpips_thermal = self.lpips(gt_thermal.expand(-1, 3, -1, -1),
+                                           predicted_thermal.expand(-1, 3, -1, -1))
+
+                metrics_dict["psnr_thermal"] = float(psnr_thermal.item())
+                metrics_dict["ssim_thermal"] = float(ssim_thermal)
+                metrics_dict["lpips_thermal"] = float(lpips_thermal)
 
         images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
 

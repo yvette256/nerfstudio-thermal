@@ -395,7 +395,8 @@ class VanillaPipeline(Pipeline):
                 progress.advance(task)
         # average the metrics list
         metrics_dict = {}
-        for key in metrics_dict_list[0].keys():
+        metrics_keys = set([key for metrics_dict in metrics_dict_list for key in metrics_dict])
+        for key in metrics_keys:
             if get_std:
                 key_std, key_mean = torch.std_mean(
                     torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list
