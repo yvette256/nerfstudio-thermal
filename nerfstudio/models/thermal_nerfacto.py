@@ -37,7 +37,11 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     density_mode: Literal["rgb_only", "shared", "separate"] = "separate"
     """How to treat density between RGB/T (rgb_only only reconstructs RGB field)."""
     tv_rgb_loss_mult: float = 1e-2
+    """RGB density TV loss multiplier."""
     tv_thermal_loss_mult: float = 1e-2
+    """Thermal density TV loss multiplier."""
+    num_tv_samples: int = 5000
+    """Number of samples for RGB and thermal TV loss."""
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -226,8 +230,7 @@ class ThermalNerfactoModel(NerfactoModel):
                 is_thermal=batch["is_thermal"],
             )
 
-        num_samples = int(5000)  # can be changed accordingly
-
+        num_samples = self.config.num_tv_samples
         if self.config.tv_rgb_loss_mult > 0:
             loss_dict["tv_rgb_loss"] = self.config.tv_rgb_loss_mult * self.tvloss(
                 self.field.get_density_only(num_points=num_samples, voxel_size=self.config.max_res),
@@ -384,7 +387,6 @@ class ThermalNerfactoModel(NerfactoModel):
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
         gt_rgb = torch.moveaxis(gt_rgb, -1, 0)[None, ...]
-        gt_thermal = torch.moveaxis(gt_thermal, -1, 0)[None, ...]
         predicted_rgb = torch.moveaxis(predicted_rgb, -1, 0)[None, ...]
 
         # all of these metrics will be logged as scalars
@@ -400,6 +402,7 @@ class ThermalNerfactoModel(NerfactoModel):
                 metrics_dict["ssim_rgb"] = float(ssim_rgb)
                 metrics_dict["lpips_rgb"] = float(lpips_rgb)
             elif not self.config.density_mode == "rgb_only":
+                gt_thermal = torch.moveaxis(gt_thermal, -1, 0)[None, ...]
                 predicted_thermal = outputs["rgb_thermal"]
                 predicted_thermal = torch.moveaxis(predicted_thermal, -1, 0)[None, ...]
 
