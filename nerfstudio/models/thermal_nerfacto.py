@@ -38,7 +38,7 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """How to treat density between RGB/T (rgb_only only reconstructs RGB field)."""
     thermal_loss_mult: float = 1.0
     """Thermal pixel-wise reconstruction loss multiplier."""
-    tv_rgb_loss_mult: float = 1e-2
+    tv_rgb_loss_mult: float = 1e-4
     """RGB density TV loss multiplier."""
     tv_thermal_loss_mult: float = 1e-2
     """Thermal density TV loss multiplier."""
@@ -46,6 +46,8 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Number of samples for RGB and thermal density TV loss."""
     tv_pixel_loss_mult: float = 0
     """Pixelwise thermal TV loss multiplier."""
+    camera_opt_regularizer_thermal_mult: float = 10
+    """Additional thermal camera optimizer regularization multiplier."""
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -295,6 +297,7 @@ class ThermalNerfactoModel(NerfactoModel):
             self.camera_optimizer.get_loss_dict(loss_dict)
             if self.config.density_mode == "separate":
                 self.camera_optimizer_thermal.get_loss_dict(loss_dict)
+                loss_dict["camera_opt_regularizer_thermal"] *= self.config.camera_opt_regularizer_thermal_mult
         return loss_dict
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
