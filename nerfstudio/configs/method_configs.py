@@ -41,7 +41,7 @@ from nerfstudio.data.datasets.depth_dataset import DepthDataset
 from nerfstudio.data.datasets.sdf_dataset import SDFDataset
 from nerfstudio.data.datasets.semantic_dataset import SemanticDataset
 from nerfstudio.data.datasets.thermal_dataset import ThermalDataset
-from nerfstudio.data.pixel_samplers import PairPixelSamplerConfig
+from nerfstudio.data.pixel_samplers import PairPixelSamplerConfig, PatchPixelSamplerConfig
 from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConfig
 from nerfstudio.engine.schedulers import (
     CosineDecaySchedulerConfig,
@@ -261,8 +261,9 @@ method_configs["thermal-nerfacto"] = TrainerConfig(
         datamanager=VanillaDataManagerConfig(
             _target=VanillaDataManager[ThermalDataset],
             dataparser=NerfstudioDataParserConfig(),
-            train_num_rays_per_batch=4096,
-            eval_num_rays_per_batch=4096,
+            train_num_rays_per_batch=4096 * 2,
+            eval_num_rays_per_batch=4096 * 2,
+            pixel_sampler=PatchPixelSamplerConfig(patch_size=2),  # HACK: don't change this, stuff will break
         ),
         model=ThermalNerfactoModelConfig(
             eval_num_rays_per_chunk=1 << 15,

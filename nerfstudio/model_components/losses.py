@@ -590,17 +590,24 @@ def depth_ranking_loss(rendered_depth, gt_depth):
     return torch.nanmean((out_diff[differing_signs] * torch.sign(out_diff[differing_signs])))
 
 
-def compute_TVloss(densities, num_samples):
+def tv_density_loss(densities, num_samples):
     """
-    
-    Args:
-        densities:
-        num_samples:
-
-    Returns:
-        average tv_loss over all sample points
-
+    Returns average density TV loss over all sample points.
     """
     tile_index = torch.tile(densities[:num_samples], (int(densities[num_samples:].shape[0]/densities[:num_samples].shape[0]),1))
     tvloss = torch.abs(torch.sub(densities[num_samples:],tile_index, alpha=1))
     return torch.mean(tvloss)
+
+
+def tv_pixel_loss(pred_thermal):
+    # HACK: right now, hard-code patch size of 2. in future, want to
+    #  1. support larger patch sizes
+    #  2. read in the patch size from somewhere
+    patch_size = 2
+    patches = pred_thermal.view(-1, patch_size ** 2)
+    return 1 / (patch_size ** 2) * torch.mean(
+        (patches[:, 0] - patches[:, 1]).abs()
+        + (patches[:, 0] - patches[:, 2]).abs()
+        + (patches[:, 1] - patches[:, 3]).abs()
+        + (patches[:, 2] - patches[:, 3]).abs()
+    )

@@ -18,10 +18,10 @@ from nerfstudio.model_components.renderers import RGBRenderer, RGBTRenderer
 from nerfstudio.model_components.losses import (
     distortion_loss,
     interlevel_loss,
-    MSELoss,
     scale_gradients_by_distance_squared,
     L1Loss,
-    compute_TVloss,  # PXY
+    tv_density_loss,
+    tv_pixel_loss,
 )
 from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig
 from nerfstudio.utils import colormaps
@@ -36,12 +36,16 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Density loss (L1 norm of [rgb density] - [thermal density]) multiplier."""
     density_mode: Literal["rgb_only", "shared", "separate"] = "separate"
     """How to treat density between RGB/T (rgb_only only reconstructs RGB field)."""
+    thermal_loss_mult: float = 1.0
+    """Thermal pixel-wise reconstruction loss multiplier."""
     tv_rgb_loss_mult: float = 1e-2
     """RGB density TV loss multiplier."""
     tv_thermal_loss_mult: float = 1e-2
     """Thermal density TV loss multiplier."""
-    num_tv_samples: int = 5000
-    """Number of samples for RGB and thermal TV loss."""
+    num_density_tv_samples: int = 5000
+    """Number of samples for RGB and thermal density TV loss."""
+    tv_pixel_loss_mult: float = 0
+    """Pixelwise thermal TV loss multiplier."""
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -180,7 +184,6 @@ class ThermalNerfactoModel(NerfactoModel):
 
         # losses
         self.density_loss = L1Loss()
-        self.tvloss = compute_TVloss
 
     def get_metrics_dict(self, outputs, batch):
         metrics_dict = {}
@@ -230,33 +233,40 @@ class ThermalNerfactoModel(NerfactoModel):
                 is_thermal=batch["is_thermal"],
             )
 
-        num_samples = self.config.num_tv_samples
+        # Density TV loss
+        num_samples = self.config.num_density_tv_samples
         if self.config.tv_rgb_loss_mult > 0:
-            loss_dict["tv_rgb_loss"] = self.config.tv_rgb_loss_mult * self.tvloss(
+            loss_dict["tv_rgb_loss"] = self.config.tv_rgb_loss_mult * tv_density_loss(
                 self.field.get_density_only(num_points=num_samples, voxel_size=self.config.max_res),
                 num_samples=num_samples)
         if self.config.density_mode == "separate" and self.config.tv_thermal_loss_mult > 0:
-            loss_dict["tv_thermal_loss"] = self.config.tv_thermal_loss_mult * self.tvloss(
+            loss_dict["tv_thermal_loss"] = self.config.tv_thermal_loss_mult * tv_density_loss(
                 self.field_thermal.get_density_only(num_points=num_samples, voxel_size=self.config.max_res),
                 num_samples=num_samples)
 
+        # Pixel-wise reconstruction loss
         loss_dict["rgb_loss"] = self.rgb_loss(
             gt_rgb[..., :3] * (1 - batch["is_thermal"])[:, None],
             pred_rgb[..., :3] * (1 - batch["is_thermal"])[:, None]
         )
         if not self.config.density_mode == "rgb_only":
-            loss_dict["thermal_loss"] = self.rgb_loss(
+            loss_dict["thermal_loss"] = self.config.thermal_loss_mult * self.rgb_loss(
                 gt_rgb[..., 3:] * batch["is_thermal"][:, None],
                 pred_rgb[..., 3:] * batch["is_thermal"][:, None]
             )
         # rgbt_loss = self.rgbt_loss(gt_rgb, pred_rgb, batch["is_thermal"])
         # assert torch.allclose(rgbt_loss, loss_dict["rgb_loss"] + loss_dict["thermal_loss"])
 
+        # Density RGB/thermal L1 loss
         if self.config.density_mode == "separate" and self.config.density_loss_mult > 0:
             loss_dict["density_loss"] = self.config.density_loss_mult * self.density_loss(
                 outputs["density2"], outputs["density_thermal"])
             loss_dict["density_loss"] += self.config.density_loss_mult * self.density_loss(
                 outputs["density"], outputs["density2_thermal"])
+
+        # Pixel-wise thermal TV loss
+        if not self.config.density_mode == "rgb_only" and self.config.tv_pixel_loss_mult > 0:
+            loss_dict["tv_pixel_loss"] = self.config.tv_pixel_loss_mult * tv_pixel_loss(pred_rgb[..., 3:])
 
         if self.training:
             loss_dict["interlevel_loss"] = 0
