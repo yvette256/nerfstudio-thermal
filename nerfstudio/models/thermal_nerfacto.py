@@ -22,6 +22,7 @@ from nerfstudio.model_components.losses import (
     L1Loss,
     tv_density_loss,
     tv_pixel_loss,
+    cross_channel_loss,
 )
 from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig
 from nerfstudio.utils import colormaps
@@ -48,6 +49,8 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Pixelwise thermal TV loss multiplier."""
     camera_opt_regularizer_thermal_mult: float = 10
     """Additional thermal camera optimizer regularization multiplier."""
+    cross_channel_loss_mult: float = 0
+    """Cross-channel gradient loss multiplier."""
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -268,7 +271,13 @@ class ThermalNerfactoModel(NerfactoModel):
 
         # Pixel-wise thermal TV loss
         if not self.config.density_mode == "rgb_only" and self.config.tv_pixel_loss_mult > 0:
-            loss_dict["tv_pixel_loss"] = self.config.tv_pixel_loss_mult * tv_pixel_loss(pred_rgb[..., 3:])
+            loss_dict["tv_pixel_loss"] = self.config.tv_pixel_loss_mult * tv_pixel_loss(
+                pred_rgb[..., 3:], batch["is_thermal"])
+
+        # Cross-channel loss
+        if not self.config.density_mode == "rgb_only" and self.config.cross_channel_loss_mult > 0:
+            loss_dict["cross_channel_loss"] = self.config.cross_channel_loss_mult * cross_channel_loss(
+                pred_rgb[..., 3:], gt_rgb[..., :3], batch["is_thermal"])
 
         if self.training:
             loss_dict["interlevel_loss"] = 0

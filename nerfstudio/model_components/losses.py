@@ -599,11 +599,18 @@ def tv_density_loss(densities, num_samples):
     return torch.mean(tvloss)
 
 
-def tv_pixel_loss(pred_thermal):
-    # HACK: right now, hard-code patch size of 2. in future, want to
+def tv_pixel_loss(
+        pred_thermal: Float[Tensor, "num_samples 1"],
+        is_thermal: Float[Tensor, "num_samples"],
+) -> Float[Tensor, "0"]:
+    """
+    Pixel-wise (2D) TV loss.
+    """
+    # HACK: right now, hard-code patch size of 2. in future, possibly want to
     #  1. support larger patch sizes
     #  2. read in the patch size from somewhere
     patch_size = 2
+    pred_thermal = pred_thermal[(1 - is_thermal).bool()]
     patches = pred_thermal.view(-1, patch_size ** 2)
     return 1 / (patch_size ** 2) * torch.mean(
         (patches[:, 0] - patches[:, 1]).abs()
@@ -611,3 +618,34 @@ def tv_pixel_loss(pred_thermal):
         + (patches[:, 1] - patches[:, 3]).abs()
         + (patches[:, 2] - patches[:, 3]).abs()
     )
+
+
+def pixel_grad(
+        img: Float[Tensor, "num_samples 1"],
+        patch_size: int = 2,
+) -> Float[Tensor, "{patch_size}**2 num_samples//{patch_size}"]:
+    # HACK: for now, hard-code patch size of 2.
+    patches = img.view(-1, patch_size ** 2)
+    return torch.stack((
+        patches[:, 1] - patches[:, 0],
+        patches[:, 2] - patches[:, 0],
+        patches[:, 3] - patches[:, 1],
+        patches[:, 3] - patches[:, 2],
+    ))
+
+
+def cross_channel_loss(
+        pred_thermal: Float[Tensor, "num_samples 1"],
+        gt_rgb: Float[Tensor, "num_samples 3"],
+        is_thermal: Float[Tensor, "num_samples"],
+) -> Float[Tensor, "0"]:
+    """
+    Loss between gradients of different channels.
+    """
+    # HACK: for now, hard-code patch size of 2.
+    patch_size = 2
+    pred_thermal = pred_thermal[(1 - is_thermal).bool()]
+    gt_rgb = gt_rgb[(1 - is_thermal).bool()]
+    gt_rgb = gt_rgb.mean(-1, keepdim=True)
+    diff = (pixel_grad(pred_thermal, patch_size=patch_size) - pixel_grad(gt_rgb, patch_size=patch_size)).abs()
+    return 1 / (patch_size ** 2) * (diff[0, :] + diff[1, :] + diff[2, :] + diff[3, :]).mean()
