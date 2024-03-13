@@ -287,27 +287,37 @@ def extract_raws_from_dir(in_path, out_path=None, upsample_thermal=False):
         if not os.path.exists(path):
             os.makedirs(path)
 
-    for i, f in enumerate(
-            [f for f in os.listdir(in_path)
-             if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif"))]
-    ):
-        with status(f"[bold yellow]Extracting{' and upsampling' if upsample_thermal else ''} raw RGB/T from image {i}."):
+    img_files = [f for f in os.listdir(in_path)
+                 if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif"))]
+    n_imgs = len(img_files)
+    min_temp, max_temp = np.inf, -np.inf
+    rgb_nps, thermal_nps = [], []
+
+    for i, f in enumerate(img_files):
+        with status(f"[bold yellow]Extracting raw RGB/T from {f} ({i}/{n_imgs})."):
             path = os.path.join(in_path, f)
             basename = os.path.splitext(f)[0]
             rgb_np, thermal_np = raw_nps_from_flir(path, verbose=False)
+            min_temp = min(min_temp, np.amin(thermal_np))
+            max_temp = max(max_temp, np.amax(thermal_np))
+            rgb_nps.append(rgb_np)
+            thermal_nps.append(thermal_np)
 
             img_visual = Image.fromarray(rgb_np)
+            img_visual_path = os.path.join(rgb_dir, f'{basename}_rgb.png')
+            img_visual.save(img_visual_path)
+
+    for i, (f, rgb_np, thermal_np) in enumerate(zip(img_files, rgb_nps, thermal_nps)):
+        with status(f"[bold yellow]Writing{' and upsampling' if upsample_thermal else ''} thermal image from {f} ({i}/{n_imgs})."):
+            basename = os.path.splitext(f)[0]
 
             h, w, _ = rgb_np.shape
-            thermal_normalized = (thermal_np - np.amin(thermal_np)) / (np.amax(thermal_np) - np.amin(thermal_np))
+            thermal_normalized = (thermal_np - min_temp) / (max_temp - min_temp)
             if upsample_thermal:
                 thermal_normalized = skimage.transform.resize(thermal_normalized, (h, w))
-            # img_thermal = Image.fromarray(np.uint8(cm.inferno(thermal_normalized) * 255))
-            img_thermal = Image.fromarray(np.uint8(thermal_normalized * 255))
 
-            img_visual_path = os.path.join(rgb_dir, f'{basename}_rgb.png')
+            img_thermal = Image.fromarray(np.uint8(thermal_normalized * 255))
             img_thermal_path = os.path.join(thermal_dir, f'{basename}_thermal.png')
-            img_visual.save(img_visual_path)
             img_thermal.save(img_thermal_path)
 
 
