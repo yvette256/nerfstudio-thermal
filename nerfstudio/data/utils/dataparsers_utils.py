@@ -29,8 +29,15 @@ def get_train_eval_split_fraction(image_filenames: List, train_split_fraction: f
         train_split_fraction: fraction of images to use for training
     """
 
+    # HACK: in future, specify w/ an argument, but for now, treat as thermal based on name
+    is_thermal_dataset = any(["thermal" in str(f) for f in image_filenames])
+    if is_thermal_dataset:
+        image_filenames = sorted(image_filenames)
+
     # filter image_filenames and poses based on train/eval split percentage
     num_images = len(image_filenames)
+    if is_thermal_dataset:
+        num_images //= 2
     num_train_images = math.ceil(num_images * train_split_fraction)
     num_eval_images = num_images - num_train_images
     i_all = np.arange(num_images)
@@ -39,6 +46,12 @@ def get_train_eval_split_fraction(image_filenames: List, train_split_fraction: f
     )  # equally spaced training images starting and ending at 0 and num_images-1
     i_eval = np.setdiff1d(i_all, i_train)  # eval images are the remaining images
     assert len(i_eval) == num_eval_images
+
+    if is_thermal_dataset:
+        i_train = np.concatenate((i_train, i_train + num_images))
+        i_eval = np.concatenate((i_eval, i_eval + num_images))
+        assert len(i_eval) == num_eval_images * 2
+        assert len(i_train) + len(i_eval) == num_images * 2
 
     return i_train, i_eval
 
