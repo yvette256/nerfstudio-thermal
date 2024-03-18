@@ -37,6 +37,7 @@ from nerfstudio.data.dataparsers.scannetpp_dataparser import ScanNetppDataParser
 from nerfstudio.data.dataparsers.sdfstudio_dataparser import SDFStudioDataParserConfig
 from nerfstudio.data.dataparsers.sitcoms3d_dataparser import Sitcoms3DDataParserConfig
 from nerfstudio.data.dataparsers.thermalnerf_dataparser import ThermalNerfDataParserConfig
+from nerfstudio.data.dataparsers.thermalblender_dataparser import ThermalBlenderDataParserConfig
 from nerfstudio.plugins.registry_dataparser import discover_dataparsers
 
 dataparsers = {
@@ -56,6 +57,7 @@ dataparsers = {
     "scannetpp-data": ScanNetppDataParserConfig(),
     "colmap": ColmapDataParserConfig(),
     "thermalnerf-data": ThermalNerfDataParserConfig(),
+    "thermalblender-data": ThermalBlenderDataParserConfig(),
 }
 
 external_dataparsers, _ = discover_dataparsers()

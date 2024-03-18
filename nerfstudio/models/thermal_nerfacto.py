@@ -306,7 +306,8 @@ class ThermalNerfactoModel(NerfactoModel):
             self.camera_optimizer.get_loss_dict(loss_dict)
             if self.config.density_mode == "separate":
                 self.camera_optimizer_thermal.get_loss_dict(loss_dict)
-                loss_dict["camera_opt_regularizer_thermal"] *= self.config.camera_opt_regularizer_thermal_mult
+                if self.camera_optimizer_thermal.config.mode != "off":
+                    loss_dict["camera_opt_regularizer_thermal"] *= self.config.camera_opt_regularizer_thermal_mult
         return loss_dict
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
