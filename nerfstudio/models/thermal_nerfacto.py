@@ -51,6 +51,8 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Additional thermal camera optimizer regularization multiplier."""
     cross_channel_loss_mult: float = 0
     """Cross-channel gradient loss multiplier."""
+    removal_min_density_diff: float = 0.05
+    """minimum difference between rgb and thermal densities allowed for removal rendering."""
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -360,7 +362,7 @@ class ThermalNerfactoModel(NerfactoModel):
             for k, v in thermal_outputs.items():
                 outputs[f"{k}_thermal"] = v
 
-            if self.config.density_loss_mult > 0:
+            if self.config.density_loss_mult > 0 or not self.training:
                 # Sample rays w/ rgb + thermal fields in same regions for density regularizer
                 #   density2 corresponds to same raysamples as density_thermal (and vice versa)
                 field_outputs = self.field.forward(ray_samples_thermal, compute_normals=self.config.predict_normals)
@@ -372,6 +374,27 @@ class ThermalNerfactoModel(NerfactoModel):
                 if self.config.use_gradient_scaling:
                     field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
                 outputs["density2_thermal"] = field_outputs[FieldHeadNames.DENSITY]
+
+            if not self.training:
+                min_density_diff = self.config.removal_min_density_diff
+
+                field_outputs_rgb = self.field.forward(
+                    ray_samples, compute_normals=self.config.predict_normals)
+                density_mask_rgb = (outputs["density"] / outputs["density"].max()
+                                    - outputs["density2_thermal"] / outputs["density"].max()).abs()\
+                                   < min_density_diff
+                weights_rgb_removal = ray_samples.get_weights(outputs["density"] * density_mask_rgb)
+                outputs["removal"] = self.renderer_rgb(
+                    rgb=field_outputs_rgb[FieldHeadNames.RGB], weights=weights_rgb_removal)
+
+                field_outputs_thermal = self.field_thermal.forward(
+                    ray_samples_thermal, compute_normals=self.config.predict_normals)
+                density_mask_thermal = (outputs["density_thermal"] / outputs["density_thermal"].max()
+                                        - outputs["density2"] / outputs["density_thermal"].max()).abs()\
+                                       < min_density_diff
+                weights_thermal_removal = ray_samples.get_weights(outputs["density_thermal"] * density_mask_thermal)
+                outputs["removal_thermal"] = self.renderer_thermal(
+                    rgb=field_outputs_thermal[FieldHeadNames.RGB], weights=weights_thermal_removal)
 
         return outputs
 

@@ -713,6 +713,8 @@ class DatasetRender(BaseRender):
     """Split to render."""
     rendered_output_names: Optional[List[str]] = field(default_factory=lambda: None)
     """Name of the renderer outputs to use. rgb, depth, raw-depth, gt-rgb etc. By default all outputs are rendered."""
+    removal_min_density_diff: float = 0.05
+    """minimum difference between rgb and thermal densities allowed for removal rendering."""
 
     def main(self):
         config: TrainerConfig
@@ -738,6 +740,8 @@ class DatasetRender(BaseRender):
             test_mode="inference",
             update_config_callback=update_config,
         )
+        if any(["removal" in n for n in self.rendered_output_names]):
+            pipeline.model.config.removal_min_density_diff = self.removal_min_density_diff
         data_manager_config = config.pipeline.datamanager
         assert isinstance(data_manager_config, (VanillaDataManagerConfig, FullImageDatamanagerConfig))
 
