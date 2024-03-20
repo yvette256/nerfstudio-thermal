@@ -395,9 +395,11 @@ class ThermalNerfactoModel(NerfactoModel):
 
                 field_outputs_rgb = self.field.forward(
                     ray_samples, compute_normals=self.config.predict_normals)
+                # print(outputs["density"].max(), outputs["density2_thermal"].max())
                 density_mask_rgb = (outputs["density"] / outputs["density"].max()
                                     - outputs["density2_thermal"] / outputs["density"].max()).abs()\
                                    < min_density_diff
+                density_mask_rgb = density_mask_rgb.logical_or(outputs["density"] > outputs["density2_thermal"])
                 weights_rgb_removal = ray_samples.get_weights(outputs["density"] * density_mask_rgb)
                 outputs["removal"] = self.renderer_rgb(
                     rgb=field_outputs_rgb[FieldHeadNames.RGB], weights=weights_rgb_removal)
