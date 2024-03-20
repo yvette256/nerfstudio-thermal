@@ -53,6 +53,8 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Cross-channel gradient loss multiplier."""
     removal_min_density_diff: float = 0.05
     """minimum difference between rgb and thermal densities allowed for removal rendering."""
+    detach_rgb_density_loss: bool = False
+    """Whether to stop gradient flow to the RGB density to the L1 density loss."""
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -266,10 +268,16 @@ class ThermalNerfactoModel(NerfactoModel):
 
         # Density RGB/thermal L1 loss
         if self.config.density_mode == "separate" and self.config.density_loss_mult > 0:
-            loss_dict["density_loss"] = self.config.density_loss_mult * self.density_loss(
-                outputs["density2"], outputs["density_thermal"])
-            loss_dict["density_loss"] += self.config.density_loss_mult * self.density_loss(
-                outputs["density"], outputs["density2_thermal"])
+            if not self.config.detach_rgb_density_loss:
+                loss_dict["density_loss"] = self.config.density_loss_mult * self.density_loss(
+                    outputs["density2"], outputs["density_thermal"])
+                loss_dict["density_loss"] += self.config.density_loss_mult * self.density_loss(
+                    outputs["density"], outputs["density2_thermal"])
+            else:
+                loss_dict["density_loss"] = self.config.density_loss_mult * self.density_loss(
+                    outputs["density2"].detach(), outputs["density_thermal"])
+                loss_dict["density_loss"] += self.config.density_loss_mult * self.density_loss(
+                    outputs["density"].detach(), outputs["density2_thermal"])
 
         # Pixel-wise thermal TV loss
         if not self.config.density_mode == "rgb_only" and self.config.tv_pixel_loss_mult > 0:
