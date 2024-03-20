@@ -37,6 +37,8 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Density loss (L1 norm of [rgb density] - [thermal density]) multiplier."""
     density_mode: Literal["rgb_only", "shared", "separate"] = "separate"
     """How to treat density between RGB/T (rgb_only only reconstructs RGB field)."""
+    rgb_density_loss_mult: float = 1
+    """Relative influence on RGB density in the L1 density loss (applied on top of density_loss_mult)."""
     thermal_loss_mult: float = 1.0
     """Thermal pixel-wise reconstruction loss multiplier."""
     tv_rgb_loss_mult: float = 1e-4
@@ -53,8 +55,6 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Cross-channel gradient loss multiplier."""
     removal_min_density_diff: float = 0.05
     """minimum difference between rgb and thermal densities allowed for removal rendering."""
-    detach_rgb_density_loss: bool = False
-    """Whether to stop gradient flow to the RGB density to the L1 density loss."""
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -268,7 +268,9 @@ class ThermalNerfactoModel(NerfactoModel):
 
         # Density RGB/thermal L1 loss
         if self.config.density_mode == "separate" and self.config.density_loss_mult > 0:
-            if not self.config.detach_rgb_density_loss:
+            if self.config.rgb_density_loss_mult == 1:
+                # HACK: this could be combined into the below but I'm scared to break previous
+                #  hyperparameter combinations
                 loss_dict["density_loss"] = self.config.density_loss_mult * self.density_loss(
                     outputs["density2"], outputs["density_thermal"])
                 loss_dict["density_loss"] += self.config.density_loss_mult * self.density_loss(
@@ -278,6 +280,11 @@ class ThermalNerfactoModel(NerfactoModel):
                     outputs["density2"].detach(), outputs["density_thermal"])
                 loss_dict["density_loss"] += self.config.density_loss_mult * self.density_loss(
                     outputs["density"].detach(), outputs["density2_thermal"])
+
+                loss_dict["density_loss"] += self.config.rgb_density_loss_mult * self.config.density_loss_mult\
+                    * self.density_loss(outputs["density2"], outputs["density_thermal"].detach())
+                loss_dict["density_loss"] += self.config.rgb_density_loss_mult * self.config.density_loss_mult\
+                    * self.density_loss( outputs["density"], outputs["density2_thermal"].detach())
 
         # Pixel-wise thermal TV loss
         if not self.config.density_mode == "rgb_only" and self.config.tv_pixel_loss_mult > 0:
