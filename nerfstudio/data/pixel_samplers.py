@@ -297,7 +297,8 @@ class PixelSampler:
             for i in range(num_images):
                 image_height, image_width, _ = batch["image"][i].shape
                 if i == num_images - 1:
-                    num_rays_in_batch = num_rays_per_batch - (num_images - 1) * num_rays_in_batch
+                    # num_rays_in_batch = num_rays_per_batch - (num_images - 1) * num_rays_in_batch
+                    num_rays_in_batch = num_rays_per_batch - (num_images - 1) * indices.shape[0]
                 if self.config.is_equirectangular:
                     indices = self.sample_method_equirectangular(
                         num_rays_in_batch, 1, image_height, image_width, device=device
