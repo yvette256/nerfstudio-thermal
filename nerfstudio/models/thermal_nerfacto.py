@@ -9,6 +9,7 @@ from torch.nn import Parameter
 
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.cameras.camera_optimizers import CameraOptimizer, CameraOptimizerConfig
+from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes, TrainingCallbackLocation
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.density_fields import HashMLPDensityField
@@ -49,12 +50,16 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Number of samples for RGB and thermal density TV loss."""
     tv_pixel_loss_mult: float = 0
     """Pixelwise thermal TV loss multiplier."""
+    camera_opt_regularizer_rgb_mult: float = 10
+    """Additional RGB camera optimizer regularization multiplier."""
     camera_opt_regularizer_thermal_mult: float = 10
     """Additional thermal camera optimizer regularization multiplier."""
     cross_channel_loss_mult: float = 0
     """Cross-channel gradient loss multiplier."""
     removal_min_density_diff: float = 0.05
     """minimum difference between rgb and thermal densities allowed for removal rendering."""
+    use_proposal_thermal_weight_anneal: bool = False
+    """Whether to use proposal weight annealing for thermal density."""
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -194,6 +199,41 @@ class ThermalNerfactoModel(NerfactoModel):
         # losses
         self.density_loss = L1Loss()
 
+    def get_training_callbacks(
+            self, training_callback_attributes: TrainingCallbackAttributes
+    ) -> List[TrainingCallback]:
+        callbacks = super().get_training_callbacks(training_callback_attributes)
+        if self.config.use_proposal_thermal_weight_anneal:
+            N = self.config.proposal_weights_anneal_max_num_iters
+
+            def set_anneal_thermal(step):
+                # https://arxiv.org/pdf/2111.12077.pdf eq. 18
+                self.step = step
+                train_frac = np.clip(step / N, 0, 1)
+                self.step = step
+
+                def bias(x, b):
+                    return b * x / ((b - 1) * x + 1)
+
+                anneal = bias(train_frac, self.config.proposal_weights_anneal_slope)
+                self.proposal_sampler_thermal.set_anneal(anneal)
+
+            callbacks.append(
+                TrainingCallback(
+                    where_to_run=[TrainingCallbackLocation.BEFORE_TRAIN_ITERATION],
+                    update_every_num_iters=1,
+                    func=set_anneal_thermal,
+                )
+            )
+            callbacks.append(
+                TrainingCallback(
+                    where_to_run=[TrainingCallbackLocation.AFTER_TRAIN_ITERATION],
+                    update_every_num_iters=1,
+                    func=self.proposal_sampler_thermal.step_cb,
+                )
+            )
+        return callbacks
+
     def get_metrics_dict(self, outputs, batch):
         metrics_dict = {}
         gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
@@ -321,9 +361,12 @@ class ThermalNerfactoModel(NerfactoModel):
                     )
             # Add loss from camera optimizer
             self.camera_optimizer.get_loss_dict(loss_dict)
+            if self.camera_optimizer.config.mode != "off":
+                loss_dict["camera_opt_regularizer"] *= self.config.camera_opt_regularizer_rgb_mult
             if self.config.density_mode == "separate":
                 self.camera_optimizer_thermal.get_loss_dict(loss_dict)
-                loss_dict["camera_opt_regularizer_thermal"] *= self.config.camera_opt_regularizer_thermal_mult
+                if self.camera_optimizer_thermal.config.mode != "off":
+                    loss_dict["camera_opt_regularizer_thermal"] *= self.config.camera_opt_regularizer_thermal_mult
         return loss_dict
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
@@ -443,7 +486,8 @@ class ThermalNerfactoModel(NerfactoModel):
             if self.config.density_mode == "rgb_only":
                 combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
             else:
-                combined_rgb = torch.cat([gt_rgb, predicted_rgb, outputs["rgb_thermal"].expand(-1, -1, 3)], dim=1)
+                gt_img = gt_thermal.expand(-1, -1, 3) if batch["is_thermal"] else gt_rgb
+                combined_rgb = torch.cat([gt_img, predicted_rgb, outputs["rgb_thermal"].expand(-1, -1, 3)], dim=1)
             combined_acc = torch.cat([acc], dim=1)
             combined_depth = torch.cat([depth], dim=1)
 

@@ -40,11 +40,11 @@ GREEN_RGBT =torch.tensor([0.0, 1.0, 0.0, 0.0])
 BLUE_RGBT = torch.tensor([0.0, 0.0, 1.0, 0.0])
 
 COLORS_RGBT_DICT = {
-    "white": WHITE,
-    "black": BLACK,
-    "red": RED,
-    "green": GREEN,
-    "blue": BLUE,
+    "white": WHITE_RGBT,
+    "black": BLACK_RGBT,
+    "red": RED_RGBT,
+    "green": GREEN_RGBT,
+    "blue": BLUE_RGBT,
 }
 
 
