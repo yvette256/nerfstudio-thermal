@@ -209,10 +209,14 @@ def _render_trajectory_video(
                     output_image = outputs[rendered_output_name]
                     is_depth = rendered_output_name.find("depth") != -1
                     if is_depth:
+                        accumulation = outputs["accumulation"]
+                        if "thermal" in rendered_output_name:
+                            accumulation = outputs["accumulation_thermal"]
+
                         output_image = (
                             colormaps.apply_depth_colormap(
                                 output_image,
-                                accumulation=outputs["accumulation"],
+                                accumulation=accumulation,
                                 near_plane=depth_near_plane,
                                 far_plane=depth_far_plane,
                                 colormap_options=colormap_options,
@@ -839,10 +843,13 @@ class DatasetRender(BaseRender):
                         if is_raw:
                             output_image = output_image.cpu().numpy()
                         elif is_depth:
+                            accumulation = outputs["accumulation"]
+                            if "thermal" in rendered_output_name:
+                                accumulation = outputs["accumulation_thermal"]
                             output_image = (
                                 colormaps.apply_depth_colormap(
                                     output_image,
-                                    accumulation=outputs["accumulation"],
+                                    accumulation=accumulation,
                                     near_plane=self.depth_near_plane,
                                     far_plane=self.depth_far_plane,
                                     colormap_options=self.colormap_options,
