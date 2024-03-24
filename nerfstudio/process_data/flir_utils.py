@@ -278,7 +278,7 @@ def raw_nps_from_flir(img_path, verbose=False):
     return rgb_np, thermal_np
 
 
-def extract_raws_from_dir(in_path, out_path=None, upsample_thermal=False):
+def extract_raws_from_dir(in_path, out_path=None, upsample_thermal=False, normalize_per_image=False):
     if out_path is None:
         out_path = f'{in_path}_raw'
     rgb_dir = os.path.join(out_path, 'rgb')
@@ -312,7 +312,10 @@ def extract_raws_from_dir(in_path, out_path=None, upsample_thermal=False):
             basename = os.path.splitext(f)[0]
 
             h, w, _ = rgb_np.shape
-            thermal_normalized = (thermal_np - min_temp) / (max_temp - min_temp)
+            if not normalize_per_image:  # normalize per scene
+                thermal_normalized = (thermal_np - min_temp) / (max_temp - min_temp)
+            else:
+                thermal_normalized = (thermal_np - np.amin(thermal_np)) / (np.amax(thermal_np) - np.amin(thermal_np))
             if upsample_thermal:
                 thermal_normalized = skimage.transform.resize(thermal_normalized, (h, w))
 

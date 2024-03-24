@@ -120,7 +120,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
         if self.calibration_data is not None:
             if not self.skip_calibration_processing:
                 for path in self.calibration_data:
-                    flir_utils.extract_raws_from_dir(path)
+                    flir_utils.extract_raws_from_dir(path, normalize_per_image=True)
             cal_rgb_dirs = [f"{path}_raw/rgb" for path in self.calibration_data]
             cal_thermal_dirs = [f"{path}_raw/thermal" for path in self.calibration_data]
             cal_result = calibration_utils.calibrate_rgb_thermal(
