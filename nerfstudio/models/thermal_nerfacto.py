@@ -50,7 +50,7 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Number of samples for RGB and thermal density TV loss."""
     tv_pixel_loss_mult: float = 0
     """Pixelwise thermal TV loss multiplier."""
-    camera_opt_regularizer_rgb_mult: float = 10
+    camera_opt_regularizer_rgb_mult: float = 1
     """Additional RGB camera optimizer regularization multiplier."""
     camera_opt_regularizer_thermal_mult: float = 10
     """Additional thermal camera optimizer regularization multiplier."""
