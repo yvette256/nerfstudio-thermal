@@ -20,8 +20,10 @@ import sys
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
 from typing import Union
 
+import exiftool
 import numpy as np
 import tyro
 from typing_extensions import Annotated
@@ -479,6 +481,99 @@ class ProcessODM(BaseConverterToNerfstudioDataset):
 
 
 @dataclass
+class ProcessSkydio(BaseConverterToNerfstudioDataset):
+    skip_image_processing: bool = False
+    """If True, skips copying of images"""
+
+    def main(self) -> None:
+        """Process images into a nerfstudio dataset."""
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        image_dir = self.output_dir / "images"
+        image_dir.mkdir(parents=True, exist_ok=True)
+        image_thermal_dir = self.output_dir / "images_thermal"
+        image_thermal_dir.mkdir(parents=True, exist_ok=True)
+
+        summary_log = []
+
+        transforms = {
+            "camera_model": "OPENCV",
+            "frames": [],
+        }
+        n_rgb = 0
+        n_thermal = 0
+
+        files = process_data_utils.list_images(self.data, recursive=True)
+        with exiftool.ExifTool() as et:
+            metadata = et.get_metadata(files)
+        for i, (file, md) in enumerate(zip(files, metadata)):
+            cam_x = md["XMP:CameraPositionNEDX"]
+            cam_y = md["XMP:CameraPositionNEDY"]
+            cam_z = md["XMP:CameraPositionNEDZ"]
+            roll = md["XMP:CameraOrientationNEDRoll"]
+            pitch = md["XMP:CameraOrientationNEDPitch"]
+            yaw = md["XMP:CameraOrientationNEDYYaw"]
+            fx = md["XMP:CalibratedFocalLengthX"]
+            fy = md["XMP:CalibratedFocalLengthY"]
+            cx = md["XMP:CalibratedOpticalCenterX"]
+            cy = md["XMP:CalibratedOpticalCenterY"]
+
+            R_yaw = np.array([
+                [np.cos(yaw), -np.sin(yaw), 0],
+                [np.sin(yaw), np.cos(yaw), 0],
+                [0, 0, 1],
+            ])
+            R_pitch = np.array([
+                [np.cos(pitch), 0, np.sin(pitch)],
+                [0, 1, 0],
+                [-np.sin(pitch), 0, np.cos(pitch)],
+            ])
+            R_roll = np.array([
+                [1, 0, 0],
+                [0, np.cos(roll), -np.sin(roll)],
+                [0, np.sin(roll), np.cos(roll)],
+            ])
+            R = R_roll @ R_pitch @ R_yaw
+            t = np.array([cam_x, cam_y, cam_z])
+            M = np.identity(4)
+            M[:3, :3] = R
+            M[:3, 3] = t
+
+            frame = {}
+            frame["transform_matrix"] = M
+            frame["fl_x"] = fx
+            frame["fl_y"] = fy
+            frame["cx"] = cx
+            frame["cy"] = cy
+            # NOTE: assume 0 distortion, don't know if this is actually true
+            frame["k1"], frame["k2"], frame["p1"], frame["p2"] = (0. for _ in range(4))
+            frame["w"] = md["XMP:ImageWidth"]
+            frame["h"] = md["XMP:ImageHeight"]
+            frame["is_thermal"] = 1 if md["XMP:CameraSource"] == "INFRARED" else 0
+
+            if not self.skip_image_processing:
+                dst = image_thermal_dir if frame["is_thermal"] else image_dir
+                filename = f"frame_{n_thermal if frame['is_thermal'] else n_rgb:05d}.jpg"
+                frame["file_path"] = Path("images") / filename
+                shutil.copy(file, dst / filename)
+            else:
+                frame["file_path"] = file
+
+            if frame["is_thermal"]:
+                n_thermal += 1
+            else:
+                n_rgb += 1
+
+            transforms["frames"].append(frame)
+
+        CONSOLE.rule("[bold green]:tada: :tada: :tada: All DONE :tada: :tada: :tada:")
+
+        for summary in summary_log:
+            CONSOLE.print(summary, justify="center")
+        CONSOLE.rule()
+
+
+@dataclass
 class NotInstalled:
     def main(self) -> None:
         ...
@@ -493,6 +588,7 @@ Commands = Union[
     Annotated[ProcessRealityCapture, tyro.conf.subcommand(name="realitycapture")],
     Annotated[ProcessRecord3D, tyro.conf.subcommand(name="record3d")],
     Annotated[ProcessODM, tyro.conf.subcommand(name="odm")],
+    Annotated[ProcessSkydio, tyro.conf.subcommand(name="skydio")],
 ]
 
 # Add aria subcommand if projectaria_tools is installed.

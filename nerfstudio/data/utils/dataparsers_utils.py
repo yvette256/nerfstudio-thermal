@@ -47,6 +47,8 @@ def get_train_eval_split_fraction(image_filenames: List, train_split_fraction: f
     i_eval = np.setdiff1d(i_all, i_train)  # eval images are the remaining images
     assert len(i_eval) == num_eval_images
 
+    # FIXME: don't assume a certain ordering / equal number of images.
+    #  ideally, indices of train/eval in rgb/thermal correspond to each other (same/similar view)
     if is_thermal_dataset:
         i_train = np.concatenate((i_train, i_train + num_images))
         i_eval = np.concatenate((i_eval, i_eval + num_images))
