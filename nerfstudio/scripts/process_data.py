@@ -19,6 +19,7 @@
 import sys
 import zipfile
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import shutil
 from typing import Union
@@ -504,7 +505,7 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
         n_thermal = 0
 
         files = process_data_utils.list_images(self.data, recursive=True)
-        with exiftool.ExifTool() as et:
+        with exiftool.ExifToolHelper() as et:
             metadata = et.get_metadata(files)
         for i, (file, md) in enumerate(zip(files, metadata)):
             cam_x = md["XMP:CameraPositionNEDX"]
@@ -512,7 +513,7 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
             cam_z = md["XMP:CameraPositionNEDZ"]
             roll = md["XMP:CameraOrientationNEDRoll"]
             pitch = md["XMP:CameraOrientationNEDPitch"]
-            yaw = md["XMP:CameraOrientationNEDYYaw"]
+            yaw = md["XMP:CameraOrientationNEDYaw"]
             fx = md["XMP:CalibratedFocalLengthX"]
             fy = md["XMP:CalibratedFocalLengthY"]
             cx = md["XMP:CalibratedOpticalCenterX"]
@@ -540,24 +541,26 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
             M[:3, 3] = t
 
             frame = {}
-            frame["transform_matrix"] = M
+            frame["transform_matrix"] = M.tolist()
             frame["fl_x"] = fx
             frame["fl_y"] = fy
             frame["cx"] = cx
             frame["cy"] = cy
             # NOTE: assume 0 distortion, don't know if this is actually true
             frame["k1"], frame["k2"], frame["p1"], frame["p2"] = (0. for _ in range(4))
-            frame["w"] = md["XMP:ImageWidth"]
-            frame["h"] = md["XMP:ImageHeight"]
+            frame["w"] = md["File:ImageWidth"]
+            frame["h"] = md["File:ImageHeight"]
             frame["is_thermal"] = 1 if md["XMP:CameraSource"] == "INFRARED" else 0
 
             if not self.skip_image_processing:
                 dst = image_thermal_dir if frame["is_thermal"] else image_dir
                 filename = f"frame_{n_thermal if frame['is_thermal'] else n_rgb:05d}.jpg"
-                frame["file_path"] = Path("images") / filename
+                subdir = "images_thermal" if frame["is_thermal"] else "images"
+                frame["file_path"] = Path(subdir) / filename
                 shutil.copy(file, dst / filename)
             else:
                 frame["file_path"] = file
+            frame["file_path"] = str(frame["file_path"])
 
             if frame["is_thermal"]:
                 n_thermal += 1
@@ -565,6 +568,9 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
                 n_rgb += 1
 
             transforms["frames"].append(frame)
+
+        with open(self.output_dir / "transforms.json", "w", encoding="utf-8") as f:
+            json.dump(transforms, f, indent=4)
 
         CONSOLE.rule("[bold green]:tada: :tada: :tada: All DONE :tada: :tada: :tada:")
 

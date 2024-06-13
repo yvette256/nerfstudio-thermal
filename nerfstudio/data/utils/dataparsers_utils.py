@@ -29,15 +29,16 @@ def get_train_eval_split_fraction(image_filenames: List, train_split_fraction: f
         train_split_fraction: fraction of images to use for training
     """
 
-    # HACK: in future, specify w/ an argument, but for now, treat as thermal based on name
-    is_thermal_dataset = any(["thermal" in str(f) for f in image_filenames])
-    if is_thermal_dataset:
-        image_filenames = sorted(image_filenames)
-
     # filter image_filenames and poses based on train/eval split percentage
     num_images = len(image_filenames)
+
+    # HACK: for now, treat as thermal assuming certain filenames
+    num_thermal = sum(["images_thermal" in str(f) for f in image_filenames])
+    num_rgb = num_images - num_thermal
+    is_thermal_dataset = num_thermal > 0
     if is_thermal_dataset:
-        num_images //= 2
+        num_images = max(num_rgb, num_thermal)
+
     num_train_images = math.ceil(num_images * train_split_fraction)
     num_eval_images = num_images - num_train_images
     i_all = np.arange(num_images)
@@ -47,13 +48,12 @@ def get_train_eval_split_fraction(image_filenames: List, train_split_fraction: f
     i_eval = np.setdiff1d(i_all, i_train)  # eval images are the remaining images
     assert len(i_eval) == num_eval_images
 
-    # FIXME: don't assume a certain ordering / equal number of images.
-    #  ideally, indices of train/eval in rgb/thermal correspond to each other (same/similar view)
     if is_thermal_dataset:
-        i_train = np.concatenate((i_train, i_train + num_images))
-        i_eval = np.concatenate((i_eval, i_eval + num_images))
-        assert len(i_eval) == num_eval_images * 2
-        assert len(i_train) + len(i_eval) == num_images * 2
+        # HACK: assumes ordering of rgb/thermal image_filenames
+        i_train = np.concatenate((i_train[:num_rgb], (i_train + num_rgb)[:num_thermal]))
+        i_eval = np.concatenate((i_eval[:num_rgb], (i_eval + num_rgb)[:num_thermal]))
+        # assert len(i_eval) == num_eval_images * 2
+        # assert len(i_train) + len(i_eval) == num_images * 2
 
     return i_train, i_eval
 
