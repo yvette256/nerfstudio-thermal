@@ -27,6 +27,7 @@ from typing import Union
 import exiftool
 import numpy as np
 import tyro
+from scipy.spatial.transform import Rotation
 from typing_extensions import Annotated
 
 from nerfstudio.process_data import (
@@ -508,45 +509,50 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
         with exiftool.ExifToolHelper() as et:
             metadata = et.get_metadata(files)
         for i, (file, md) in enumerate(zip(files, metadata)):
+            # roll = md["XMP:CameraOrientationNEDRoll"]
+            # pitch = md["XMP:CameraOrientationNEDPitch"]
+            # yaw = md["XMP:CameraOrientationNEDYaw"]
+            # R_yaw = np.array([
+            #     [np.cos(yaw), -np.sin(yaw), 0],
+            #     [np.sin(yaw), np.cos(yaw), 0],
+            #     [0, 0, 1],
+            # ])
+            # R_pitch = np.array([
+            #     [np.cos(pitch), 0, np.sin(pitch)],
+            #     [0, 1, 0],
+            #     [-np.sin(pitch), 0, np.cos(pitch)],
+            # ])
+            # R_roll = np.array([
+            #     [1, 0, 0],
+            #     [0, np.cos(roll), -np.sin(roll)],
+            #     [0, np.sin(roll), np.cos(roll)],
+            # ])
+            # R = R_yaw @ R_pitch @ R_roll
+
+            quat_x = md["XMP:CameraOrientationQuatNEDX"]
+            quat_y = md["XMP:CameraOrientationQuatNEDY"]
+            quat_z = md["XMP:CameraOrientationQuatNEDZ"]
+            quat_w = md["XMP:CameraOrientationQuatNEDW"]
+            R = Rotation.from_quat([quat_x, quat_y, quat_z, quat_w]).as_matrix()
+
             cam_x = md["XMP:CameraPositionNEDX"]
             cam_y = md["XMP:CameraPositionNEDY"]
             cam_z = md["XMP:CameraPositionNEDZ"]
-            roll = md["XMP:CameraOrientationNEDRoll"]
-            pitch = md["XMP:CameraOrientationNEDPitch"]
-            yaw = md["XMP:CameraOrientationNEDYaw"]
-            fx = md["XMP:CalibratedFocalLengthX"]
-            fy = md["XMP:CalibratedFocalLengthY"]
-            cx = md["XMP:CalibratedOpticalCenterX"]
-            cy = md["XMP:CalibratedOpticalCenterY"]
-
-            R_yaw = np.array([
-                [np.cos(yaw), -np.sin(yaw), 0],
-                [np.sin(yaw), np.cos(yaw), 0],
-                [0, 0, 1],
-            ])
-            R_pitch = np.array([
-                [np.cos(pitch), 0, np.sin(pitch)],
-                [0, 1, 0],
-                [-np.sin(pitch), 0, np.cos(pitch)],
-            ])
-            R_roll = np.array([
-                [1, 0, 0],
-                [0, np.cos(roll), -np.sin(roll)],
-                [0, np.sin(roll), np.cos(roll)],
-            ])
-            R = R_roll @ R_pitch @ R_yaw
             t = np.array([cam_x, cam_y, cam_z])
+            T = np.identity(4)
+            T[:3, 3] = t
+
             M = np.identity(4)
             M[:3, :3] = R
-            M[:3, 3] = t
+            M = M @ T
 
             frame = {}
             frame["transform_matrix"] = M.tolist()
-            frame["fl_x"] = fx
-            frame["fl_y"] = fy
-            frame["cx"] = cx
-            frame["cy"] = cy
-            # NOTE: assume 0 distortion, don't know if this is actually true
+            frame["fl_x"] = md["XMP:CalibratedFocalLengthX"]
+            frame["fl_y"] = md["XMP:CalibratedFocalLengthY"]
+            frame["cx"] = md["XMP:CalibratedOpticalCenterX"]
+            frame["cy"] = md["XMP:CalibratedOpticalCenterY"]
+            # NOTE: assume 0 distortion
             frame["k1"], frame["k2"], frame["p1"], frame["p2"] = (0. for _ in range(4))
             frame["w"] = md["File:ImageWidth"]
             frame["h"] = md["File:ImageHeight"]
