@@ -34,30 +34,30 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Thermal Nerfacto Model Config"""
 
     _target: Type = field(default_factory=lambda: ThermalNerfactoModel)
-    density_loss_mult: float = 1e-6  # NOTE: 1e-6 is good
-    """Density loss (L1 norm of [rgb density] - [thermal density]) multiplier."""
+    density_loss_mult: float = 5e-5
+    """Density loss (L1 norm of <rgb density> - <thermal density>) multiplier."""
     density_mode: Literal["rgb_only", "shared", "separate"] = "separate"
     """How to treat density between RGB/T (rgb_only only reconstructs RGB field)."""
-    rgb_density_loss_mult: float = 1
+    rgb_density_loss_mult: float = 0.01
     """Relative influence on RGB density in the L1 density loss (applied on top of density_loss_mult)."""
-    thermal_loss_mult: float = 1.0
+    thermal_loss_mult: float = 100.
     """Thermal pixel-wise reconstruction loss multiplier."""
-    tv_rgb_loss_mult: float = 1e-4
+    tv_rgb_loss_mult: float = 0
     """RGB density TV loss multiplier."""
-    tv_thermal_loss_mult: float = 1e-2
+    tv_thermal_loss_mult: float = 0
     """Thermal density TV loss multiplier."""
     num_density_tv_samples: int = 5000
     """Number of samples for RGB and thermal density TV loss."""
-    tv_pixel_loss_mult: float = 0
+    tv_pixel_loss_mult: float = 1e-6
     """Pixelwise thermal TV loss multiplier."""
     camera_opt_regularizer_rgb_mult: float = 1
     """Additional RGB camera optimizer regularization multiplier."""
     camera_opt_regularizer_thermal_mult: float = 10
     """Additional thermal camera optimizer regularization multiplier."""
-    cross_channel_loss_mult: float = 0
+    cross_channel_loss_mult: float = 1e-6
     """Cross-channel gradient loss multiplier."""
     removal_min_density_diff: float = 0.05
-    """minimum difference between rgb and thermal densities allowed for removal rendering."""
+    """Minimum difference between rgb and thermal densities allowed for removal rendering."""
     use_proposal_thermal_weight_anneal: bool = False
     """Whether to use proposal weight annealing for thermal density."""
 

@@ -217,7 +217,7 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             thermal_camera_params["p2"] = p2_thermal
 
             # Get extrinsics
-            # FIX HACK: Hardcoding some values here to get scale estimation to work, will only work for
+            # HACK: Hardcoding some values here to get scale estimation to work, will only work for
             #  specific scene. Change method of calculating scale later.
             img1 = "images/frame_00003.png"
             img2 = "images/frame_00004.png"

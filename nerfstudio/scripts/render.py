@@ -718,7 +718,7 @@ class DatasetRender(BaseRender):
     rendered_output_names: Optional[List[str]] = field(default_factory=lambda: None)
     """Name of the renderer outputs to use. rgb, depth, raw-depth, gt-rgb etc. By default all outputs are rendered."""
     removal_min_density_diff: float = 0.05
-    """minimum difference between rgb and thermal densities allowed for removal rendering."""
+    """Minimum difference between rgb and thermal densities allowed for removal rendering."""
 
     def main(self):
         config: TrainerConfig
