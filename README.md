@@ -84,10 +84,10 @@ python nerfstudio/scripts/process_data.py rgbt --data FLIR_DATA_PATH --output-di
 Changing the hard-coded nature of these quirks is on our to-do list, but in the meantime, users should know about the following:
 
 - The calibration pattern of the target we used (4 x 11 asymmetric grid of circular cutouts, each with a diameter
-  of 15mm and a center-center distance of 38mm) is hard-coded in this [function](https://github.com/yvette256/nerfstudio-thermal/blob/9d347c21ffbc7293e8dd4109483800b8021784bc/nerfstudio/process_data/calibration_utils.py#L11).
+  of 15mm and a center-center distance of 38mm) is hard-coded in this [function](https://github.com/yvette256/nerfstudio-thermal/blob/main/nerfstudio/process_data/calibration_utils.py#L11).
   If you wish to use your own custom calibration pattern, you will need to edit the code in the function.
 - We hard-code the assumption that the 3rd and 4th (in lexicographic order) images in `FLIR_DATA_PATH` are taken from
-  camera positions 1m apart [here](https://github.com/yvette256/nerfstudio-thermal/blob/9d347c21ffbc7293e8dd4109483800b8021784bc/nerfstudio/process_data/rgbt_to_nerfstudio_dataset.py#L222).
+  camera positions 1m apart [here](https://github.com/yvette256/nerfstudio-thermal/blob/main/nerfstudio/process_data/rgbt_to_nerfstudio_dataset.py#L222).
   This is to resolve the global scale ambiguity in the output of COLMAP, which is used to estimate RGB pose.
   Precisely, to resolve this ambiguity, it is sufficient to know the distance between camera positions of any two images,
   so this can be edited to reflect any two images and any distance when using custom data.
