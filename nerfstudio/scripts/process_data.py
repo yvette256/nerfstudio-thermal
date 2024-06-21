@@ -509,6 +509,11 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
         with exiftool.ExifToolHelper() as et:
             metadata = et.get_metadata(files)
         for i, (file, md) in enumerate(zip(files, metadata)):
+            frame = {}
+            frame["is_thermal"] = 1 if md["XMP:CameraSource"] == "INFRARED" else 0
+            if frame["is_thermal"] and "APP1:AtmosphericTransAlpha1" not in md:
+                continue
+
             # roll = md["XMP:CameraOrientationNEDRoll"]
             # pitch = md["XMP:CameraOrientationNEDPitch"]
             # yaw = md["XMP:CameraOrientationNEDYaw"]
@@ -546,7 +551,6 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
             M[:3, :3] = R
             M = M @ T
 
-            frame = {}
             frame["transform_matrix"] = M.tolist()
             frame["fl_x"] = md["XMP:CalibratedFocalLengthX"]
             frame["fl_y"] = md["XMP:CalibratedFocalLengthY"]
@@ -556,7 +560,6 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
             frame["k1"], frame["k2"], frame["p1"], frame["p2"] = (0. for _ in range(4))
             frame["w"] = md["File:ImageWidth"]
             frame["h"] = md["File:ImageHeight"]
-            frame["is_thermal"] = 1 if md["XMP:CameraSource"] == "INFRARED" else 0
 
             if not self.skip_image_processing:
                 dst = image_thermal_dir if frame["is_thermal"] else image_dir
