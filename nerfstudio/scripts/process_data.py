@@ -495,8 +495,8 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
         self.output_dir.mkdir(parents=True, exist_ok=True)
         image_dir = self.output_dir / "images"
         image_dir.mkdir(parents=True, exist_ok=True)
-        image_thermal_dir = self.output_dir / "images_thermal"
-        image_thermal_dir.mkdir(parents=True, exist_ok=True)
+        thermal_image_dir = self.output_dir / "images_thermal"
+        thermal_image_dir.mkdir(parents=True, exist_ok=True)
 
         summary_log = []
 
@@ -564,7 +564,7 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
             frame["h"] = md["File:ImageHeight"]
 
             if not self.skip_image_processing:
-                dst = image_thermal_dir if frame["is_thermal"] else image_dir
+                dst = thermal_image_dir if frame["is_thermal"] else image_dir
                 filename = f"frame_{n_thermal if frame['is_thermal'] else n_rgb:05d}.jpg"
                 subdir = "images_thermal" if frame["is_thermal"] else "images"
                 frame["file_path"] = Path(subdir) / filename
