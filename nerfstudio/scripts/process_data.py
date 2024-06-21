@@ -28,6 +28,7 @@ import exiftool
 import numpy as np
 import tyro
 from scipy.spatial.transform import Rotation
+from typing import Literal
 from typing_extensions import Annotated
 
 from nerfstudio.process_data import (
@@ -486,6 +487,7 @@ class ProcessODM(BaseConverterToNerfstudioDataset):
 class ProcessSkydio(BaseConverterToNerfstudioDataset):
     skip_image_processing: bool = False
     """If True, skips copying of images"""
+    coordinate_convention: Literal["NED", "FLU"] = "NED"
 
     def main(self) -> None:
         """Process images into a nerfstudio dataset."""
@@ -534,15 +536,15 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
             # ])
             # R = R_yaw @ R_pitch @ R_roll
 
-            quat_x = md["XMP:CameraOrientationQuatNEDX"]
-            quat_y = md["XMP:CameraOrientationQuatNEDY"]
-            quat_z = md["XMP:CameraOrientationQuatNEDZ"]
-            quat_w = md["XMP:CameraOrientationQuatNEDW"]
+            quat_x = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}X"]
+            quat_y = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}Y"]
+            quat_z = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}Z"]
+            quat_w = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}W"]
             R = Rotation.from_quat([quat_x, quat_y, quat_z, quat_w]).as_matrix()
 
-            cam_x = md["XMP:CameraPositionNEDX"]
-            cam_y = md["XMP:CameraPositionNEDY"]
-            cam_z = md["XMP:CameraPositionNEDZ"]
+            cam_x = md[f"XMP:CameraPosition{self.coordinate_convention}X"]
+            cam_y = md[f"XMP:CameraPosition{self.coordinate_convention}Y"]
+            cam_z = md[f"XMP:CameraPosition{self.coordinate_convention}Z"]
             t = np.array([cam_x, cam_y, cam_z])
             T = np.identity(4)
             T[:3, 3] = t
