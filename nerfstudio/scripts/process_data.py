@@ -556,8 +556,8 @@ class ProcessSkydio(BaseConverterToNerfstudioDataset):
             frame["fl_y"] = md["XMP:CalibratedFocalLengthY"]
             frame["cx"] = md["XMP:CalibratedOpticalCenterX"]
             frame["cy"] = md["XMP:CalibratedOpticalCenterY"]
-            # NOTE: assume 0 distortion
-            frame["k1"], frame["k2"], frame["p1"], frame["p2"] = (0. for _ in range(4))
+            frame["p1"], frame["p2"], frame["k4"], frame["k5"], frame["k6"] = (0. for _ in range(5))
+            frame["k1"], frame["k2"], frame["k3"] = map(float, md["XMP:DewarpData"].split(','))
             frame["w"] = md["File:ImageWidth"]
             frame["h"] = md["File:ImageHeight"]
 
