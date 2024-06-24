@@ -23,7 +23,7 @@ def rgb_to_rgbt_image(
     rgbt_shape = image.shape[:-1] + (4,)
     rgbt = torch.zeros(rgbt_shape).to(image.device)
     is_rgb = 1 - is_thermal
-    # FIXME: BUG: pretty sure this doesn't work for e.g. (1, C, H, W) images
+    # XXX: pretty sure this doesn't work for e.g. (1, C, H, W) images
     if hasattr(is_rgb, "__len__"):
         rgbt[..., :3] = torch.einsum("ij,i->ij", image, is_rgb)
     else:
