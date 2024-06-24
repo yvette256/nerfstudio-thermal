@@ -77,7 +77,7 @@ This command computes the RGB and thermal camera intrinsics/extrinsics using the
 images in `CALIBRATION_DATA_PATH` and populates the directory `DATA_PATH`.
 
 ```bash
-python nerfstudio/scripts/process_data.py rgbt --data FLIR_DATA_PATH --output-dir DATA_PATH --calibration-data CALIBRATION_DATA_PATH
+python ns-process-data rgbt --data FLIR_DATA_PATH --output-dir DATA_PATH --calibration-data CALIBRATION_DATA_PATH
 ```
 
 **IMPORTANT:** This script does currently hard-code some assumptions.
@@ -100,7 +100,7 @@ our script is built.
 Most of these should still work, but have not been extensively tested.
 
 ```bash
-python nerfstudio/scripts/process_data.py rgbt --help
+python ns-process-data rgbt --help
 ```
 
 ### Training
@@ -108,7 +108,7 @@ python nerfstudio/scripts/process_data.py rgbt --help
 To train the _thermal-nerfacto_ model on the (processed) thermal data, run
 
 ```bash
-python nerfstudio/scripts/train.py thermal-nerfacto --data DATA_PATH
+python ns-train thermal-nerfacto --data DATA_PATH
 ```
 <details>
 <summary><span style="font-weight: bold;">Configuration options for thermal-nerfacto</span></summary>
@@ -137,7 +137,7 @@ We support four different methods to track training progress, using the viewer: 
 It is possible to load a pretrained model by running
 
 ```bash
-python nerfstudio/scripts/train.py nerfacto --data DATA_PATH --load-dir MODEL_PATH
+python ns-train nerfacto --data DATA_PATH --load-dir MODEL_PATH
 ```
 
 #### Additional configuration options
@@ -148,7 +148,7 @@ _thermal-nerfacto_ is built.
 Most of these should still work, but have not been extensively tested with _thermal-nerfacto_.
 
 ```bash
-python nerfstudio/scripts/train.py thermal-nerfacto --help
+python ns-train thermal-nerfacto --help
 ```
 
 ## Visualization
@@ -159,7 +159,7 @@ When training, navigating to the link at the end of the terminal will load the w
 Otherwise, given a pretrained model checkpoint, you can start the viewer by running
 
 ```bash
-python nerfstudio/scripts/viewer/run_viewer.py --load-config {outputs/.../config.yml}
+python ns-viewer --load-config {outputs/.../config.yml}
 ```
 
 In the viewer, the thermal outputs are named similarly to the RGB outputs, but with `_thermal` appended.
@@ -172,7 +172,7 @@ thermal depth, etc.
 To render outputs from train/test views, run
 
 ```bash
-python nerfstudio/scripts/render.py dataset --load-config {outputs/.../config.yml}
+python ns-render dataset --load-config {outputs/.../config.yml}
 ```
 
 <details>

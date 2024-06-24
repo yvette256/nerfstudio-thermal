@@ -18,11 +18,10 @@ from nerfstudio.utils.rich_utils import CONSOLE
 class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
     """Process images into a thermal nerfstudio dataset."""
 
-    # calibration_data: Optional[Union[Path, List[Path]]] = None
     calibration_data: Optional[List[Path]] = None
     """Paths to directories containing calibration images."""
     thermal_data: Optional[Path] = None
-    """Path to directory of thermal images."""
+    """Path to directory of thermal images. If None, assume data contains both RGB and thermal images."""
     eval_thermal_data: Optional[Path] = None
     """Path to eval thermal data."""
     upsample_thermal: bool = False
@@ -35,8 +34,8 @@ class RGBTToNerfstudioDataset(ImagesToNerfstudioDataset):
             flir_utils.extract_raws_from_dir(self.data, upsample_thermal=self.upsample_thermal)
             CONSOLE.log("[bold green]:tada: Extracted raw RGB/T images from FLIR data.")
             self.data = self.data.parent / (self.data.name + "_raw") / "rgb"  # HACK: redefines self.data unintuitively
-        else:
-            self.data = self.data / "images"  # HACK: redefines self.data unintuitively
+        elif self.thermal_data is None:
+            self.data = self.data / "images"
 
         super().__post_init__()
 
