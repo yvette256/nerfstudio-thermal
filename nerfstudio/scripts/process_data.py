@@ -43,6 +43,7 @@ from nerfstudio.process_data.colmap_converter_to_nerfstudio_dataset import BaseC
 from nerfstudio.process_data.images_to_nerfstudio_dataset import ImagesToNerfstudioDataset
 from nerfstudio.process_data.video_to_nerfstudio_dataset import VideoToNerfstudioDataset
 from nerfstudio.process_data.rgbt_to_nerfstudio_dataset import RGBTToNerfstudioDataset
+from nerfstudio.process_data.skydio_to_nerfstudio_dataset import SkydioToNerfstudioDataset
 from nerfstudio.utils.rich_utils import CONSOLE
 
 
@@ -484,113 +485,6 @@ class ProcessODM(BaseConverterToNerfstudioDataset):
 
 
 @dataclass
-class ProcessSkydio(BaseConverterToNerfstudioDataset):
-    skip_image_processing: bool = False
-    """If True, skips copying of images"""
-    coordinate_convention: Literal["NED", "FLU"] = "NED"
-
-    def main(self) -> None:
-        """Process images into a nerfstudio dataset."""
-
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        image_dir = self.output_dir / "images"
-        image_dir.mkdir(parents=True, exist_ok=True)
-        thermal_image_dir = self.output_dir / "images_thermal"
-        thermal_image_dir.mkdir(parents=True, exist_ok=True)
-
-        summary_log = []
-
-        transforms = {
-            "camera_model": "OPENCV",
-            "frames": [],
-        }
-        n_rgb = 0
-        n_thermal = 0
-
-        files = process_data_utils.list_images(self.data, recursive=True)
-        with exiftool.ExifToolHelper() as et:
-            metadata = et.get_metadata(files)
-        for i, (file, md) in enumerate(zip(files, metadata)):
-            frame = {}
-            frame["is_thermal"] = 1 if md["XMP:CameraSource"] == "INFRARED" else 0
-            if frame["is_thermal"] and "APP1:AtmosphericTransAlpha1" not in md:
-                continue
-
-            # roll = md["XMP:CameraOrientationNEDRoll"]
-            # pitch = md["XMP:CameraOrientationNEDPitch"]
-            # yaw = md["XMP:CameraOrientationNEDYaw"]
-            # R_yaw = np.array([
-            #     [np.cos(yaw), -np.sin(yaw), 0],
-            #     [np.sin(yaw), np.cos(yaw), 0],
-            #     [0, 0, 1],
-            # ])
-            # R_pitch = np.array([
-            #     [np.cos(pitch), 0, np.sin(pitch)],
-            #     [0, 1, 0],
-            #     [-np.sin(pitch), 0, np.cos(pitch)],
-            # ])
-            # R_roll = np.array([
-            #     [1, 0, 0],
-            #     [0, np.cos(roll), -np.sin(roll)],
-            #     [0, np.sin(roll), np.cos(roll)],
-            # ])
-            # R = R_yaw @ R_pitch @ R_roll
-
-            quat_x = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}X"]
-            quat_y = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}Y"]
-            quat_z = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}Z"]
-            quat_w = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}W"]
-            R = Rotation.from_quat([quat_x, quat_y, quat_z, quat_w]).as_matrix()
-
-            cam_x = md[f"XMP:CameraPosition{self.coordinate_convention}X"]
-            cam_y = md[f"XMP:CameraPosition{self.coordinate_convention}Y"]
-            cam_z = md[f"XMP:CameraPosition{self.coordinate_convention}Z"]
-            t = np.array([cam_x, cam_y, cam_z])
-            T = np.identity(4)
-            T[:3, 3] = t
-
-            M = np.identity(4)
-            M[:3, :3] = R
-            M = M @ T
-
-            frame["transform_matrix"] = M.tolist()
-            frame["fl_x"] = md["XMP:CalibratedFocalLengthX"]
-            frame["fl_y"] = md["XMP:CalibratedFocalLengthY"]
-            frame["cx"] = md["XMP:CalibratedOpticalCenterX"]
-            frame["cy"] = md["XMP:CalibratedOpticalCenterY"]
-            frame["p1"], frame["p2"], frame["k4"], frame["k5"], frame["k6"] = (0. for _ in range(5))
-            frame["k1"], frame["k2"], frame["k3"] = map(float, md["XMP:DewarpData"].split(','))
-            frame["w"] = md["File:ImageWidth"]
-            frame["h"] = md["File:ImageHeight"]
-
-            if not self.skip_image_processing:
-                dst = thermal_image_dir if frame["is_thermal"] else image_dir
-                filename = f"frame_{n_thermal if frame['is_thermal'] else n_rgb:05d}.jpg"
-                subdir = "images_thermal" if frame["is_thermal"] else "images"
-                frame["file_path"] = Path(subdir) / filename
-                shutil.copy(file, dst / filename)
-            else:
-                frame["file_path"] = file
-            frame["file_path"] = str(frame["file_path"])
-
-            if frame["is_thermal"]:
-                n_thermal += 1
-            else:
-                n_rgb += 1
-
-            transforms["frames"].append(frame)
-
-        with open(self.output_dir / "transforms.json", "w", encoding="utf-8") as f:
-            json.dump(transforms, f, indent=4)
-
-        CONSOLE.rule("[bold green]:tada: :tada: :tada: All DONE :tada: :tada: :tada:")
-
-        for summary in summary_log:
-            CONSOLE.print(summary, justify="center")
-        CONSOLE.rule()
-
-
-@dataclass
 class NotInstalled:
     def main(self) -> None:
         ...
@@ -600,12 +494,12 @@ Commands = Union[
     Annotated[ImagesToNerfstudioDataset, tyro.conf.subcommand(name="images")],
     Annotated[VideoToNerfstudioDataset, tyro.conf.subcommand(name="video")],
     Annotated[RGBTToNerfstudioDataset, tyro.conf.subcommand(name="rgbt")],
+    Annotated[SkydioToNerfstudioDataset, tyro.conf.subcommand(name="skydio")],
     Annotated[ProcessPolycam, tyro.conf.subcommand(name="polycam")],
     Annotated[ProcessMetashape, tyro.conf.subcommand(name="metashape")],
     Annotated[ProcessRealityCapture, tyro.conf.subcommand(name="realitycapture")],
     Annotated[ProcessRecord3D, tyro.conf.subcommand(name="record3d")],
     Annotated[ProcessODM, tyro.conf.subcommand(name="odm")],
-    Annotated[ProcessSkydio, tyro.conf.subcommand(name="skydio")],
 ]
 
 # Add aria subcommand if projectaria_tools is installed.

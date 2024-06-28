@@ -38,7 +38,7 @@ def get_train_eval_split_fraction(image_filenames: List, train_split_fraction: f
     num_rgb = num_images - num_thermal
     is_thermal_dataset = num_thermal > 0
     if is_thermal_dataset:
-        num_images = max(num_rgb, num_thermal)
+        num_images = min(num_rgb, num_thermal)
 
     num_train_images = math.ceil(num_images * train_split_fraction)
     num_eval_images = num_images - num_train_images
@@ -49,23 +49,25 @@ def get_train_eval_split_fraction(image_filenames: List, train_split_fraction: f
     i_eval = np.setdiff1d(i_all, i_train)  # eval images are the remaining images
     assert len(i_eval) == num_eval_images
 
-    if num_images == num_rgb:
-        num_train_rgb = num_train_images
-        num_eval_rgb = num_eval_images
-        num_train_thermal = math.ceil(num_thermal * train_split_fraction)
-        num_eval_thermal = num_thermal - num_train_thermal
-    else:
-        num_train_thermal = num_train_images
-        num_eval_thermal = num_eval_images
-        num_train_rgb = math.ceil(num_rgb * train_split_fraction)
-        num_eval_rgb = num_rgb - num_train_rgb
-
     if is_thermal_dataset:
+        num_remaining = max(num_rgb, num_thermal) - num_images
+        num_train_remaining = math.ceil(num_remaining * train_split_fraction)
+        num_eval_remaining = num_remaining - num_train_remaining
+        i_all_remaining = np.arange(num_remaining)
+        i_train_remaining = np.linspace(0, num_remaining - 1, num_train_remaining, dtype=int)
+        i_eval_remaining = np.setdiff1d(i_all_remaining, i_train_remaining)
+        i_train_remaining += num_images
+        i_eval_remaining += num_images
+        assert len(i_eval_remaining) == num_eval_remaining
+
         # HACK: assumes ordering of rgb/thermal image_filenames
-        i_train = np.concatenate((i_train[:num_train_rgb], (i_train + num_rgb)[:num_train_thermal]))
-        i_eval = np.concatenate((i_eval[:num_eval_rgb], (i_eval + num_rgb)[:num_eval_thermal]))
-        # assert len(i_eval) == num_eval_images * 2
-        # assert len(i _train) + len(i_eval) == num_images * 2
+        if num_images == num_rgb:
+            i_train = np.concatenate((i_train, (i_train + num_rgb), (i_train_remaining + num_rgb)))
+            i_eval = np.concatenate((i_eval, (i_eval + num_rgb), (i_eval_remaining + num_rgb)))
+        else:
+            i_train = np.concatenate((i_train, i_train_remaining, (i_train + num_rgb)))
+            i_eval = np.concatenate((i_eval, i_eval_remaining, (i_eval + num_rgb)))
+
     assert num_images_total == len(i_train) + len(i_eval)
     assert len(np.intersect1d(i_train, i_eval)) == 0
     assert len(np.unique(i_train)) == len(i_train) and len(np.unique(i_eval)) == len(i_eval)
