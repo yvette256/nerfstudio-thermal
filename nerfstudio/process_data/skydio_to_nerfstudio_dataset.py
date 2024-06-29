@@ -2,18 +2,14 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import shutil
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
-import cv2
 import exiftool
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from nerfstudio.process_data import (
-    colmap_utils, hloc_utils, process_data_utils
-)
+from nerfstudio.process_data import process_data_utils
 from nerfstudio.process_data.images_to_nerfstudio_dataset import ImagesToNerfstudioDataset
-from nerfstudio.process_data.process_data_utils import CAMERA_MODELS
 from nerfstudio.utils.rich_utils import CONSOLE
 
 
@@ -31,6 +27,8 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
     """Coordinate convention for camera pose."""
     max_num_images: int = -1
     """Maximum number of images to process. If -1, no maximum."""
+    rgb_only: bool = False
+    """Whether to process only RGB images."""
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -69,11 +67,13 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
                 frame["is_thermal"] = 1 if md["XMP:CameraSource"] == "INFRARED" else 0
             except KeyError:
                 continue
+            # Only use thermal frames w/ radiometric data (non-tonemapped)
             if frame["is_thermal"] and "APP1:AtmosphericTransAlpha1" not in md:
-                # Only use thermal frames w/ radiometric data (non-tonemapped)
+                continue
+            if self.rgb_only and frame["is_thermal"]:
                 continue
 
-            # # Rotation from yaw, pitch, roll
+            # Rotation from yaw, pitch, roll
             # roll = md["XMP:CameraOrientationNEDRoll"]
             # pitch = md["XMP:CameraOrientationNEDPitch"]
             # yaw = md["XMP:CameraOrientationNEDYaw"]
@@ -93,6 +93,11 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
             #     [0, np.sin(roll), np.cos(roll)],
             # ])
             # R = R_yaw @ R_pitch @ R_roll
+            # R = R_yaw @ R_roll @ R_pitch
+            # R = R_roll @ R_yaw @ R_pitch
+            # R = R_roll @ R_pitch @ R_yaw
+            # R = R_pitch @ R_roll @ R_yaw
+            # R = R_pitch @ R_yaw @ R_roll
 
             # Rotation from quaternion
             quat_x = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}X"]
@@ -111,7 +116,8 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
 
             M = np.identity(4)
             M[:3, :3] = R
-            # M = M @ T  # TODO: does this make sense?
+            # TODO: what are the correct c2w matrices?
+            # M = M @ T
             M[:3, 3] = t
             # M = np.linalg.inv(M)
             frame["transform_matrix"] = M.tolist()
@@ -192,6 +198,8 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
                 group_transforms = [transforms["frames"][i]["transform_matrix"] for i in frame_inds]
                 colmap_frame_inds = colmap_group_to_frame_inds[group]
                 colmap_transforms = [colmap_data["frames"][i]["transform_matrix"] for i in colmap_frame_inds]
+
+            # TODO: resolve relative transform ambiguity: either remove this if not needed or finish it lol
 
         with open(self.output_dir / "transforms.json", "w", encoding="utf-8") as f:
             json.dump(transforms, f, indent=4)
