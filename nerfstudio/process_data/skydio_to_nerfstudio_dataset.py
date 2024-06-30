@@ -54,9 +54,6 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
         }
         n_rgb = 0
         n_thermal = 0
-        group_to_rgb_frame_inds = {}
-        frame_path_to_group = {}
-        frame_groups = []
 
         files = process_data_utils.list_images(self.data, recursive=True)
         with exiftool.ExifToolHelper() as et:
@@ -149,57 +146,10 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
             else:
                 n_rgb += 1
 
-            # Separate frames into groups w/ no relative transform ambiguity (according to subdir)
-            if not frame["is_thermal"]:
-                if file.parent not in group_to_rgb_frame_inds:
-                    group_to_rgb_frame_inds[file.parent] = []
-                group_to_rgb_frame_inds[file.parent].append(i)
-            frame_path_to_group[frame["file_path"]] = file.parent
-            frame_groups.append(file.parent)
-
             transforms["frames"].append(frame)
 
             if -1 < self.max_num_images <= n_thermal + n_rgb:
                 break
-
-        # Skip COLMAP if no relative transform ambiguity
-        if len(group_to_rgb_frame_inds) < 2:
-            self.skip_colmap = True
-
-        if not self.skip_colmap:
-            # Run COLMAP on all collected RGB images
-            require_cameras_exist = True
-            self._run_colmap()
-
-            # Export depth maps
-            image_id_to_depth_path, log_tmp = self._export_depth()
-            summary_log += log_tmp
-
-            if require_cameras_exist and not (self.absolute_colmap_model_path / "cameras.bin").exists():
-                raise RuntimeError(f"Could not find existing COLMAP results ({self.colmap_model_path / 'cameras.bin'}).")
-
-            summary_log += self._save_transforms(
-                n_rgb,
-                image_id_to_depth_path,
-                None,
-                None,
-            )
-
-            # Compute transform between COLMAP poses and groups of metadata poses
-            with open(self.output_dir / "transforms.json", "r", encoding="utf-8") as f:
-                colmap_data = json.load(f)
-
-            colmap_group_to_frame_inds = {k: [] for k in group_to_rgb_frame_inds.keys()}
-            for i, frame in enumerate(colmap_data["frames"]):
-                file_path = frame["file_path"]
-                colmap_group_to_frame_inds[frame_path_to_group[file_path]].append(i)
-
-            for group, frame_inds in group_to_rgb_frame_inds.items():
-                group_transforms = [transforms["frames"][i]["transform_matrix"] for i in frame_inds]
-                colmap_frame_inds = colmap_group_to_frame_inds[group]
-                colmap_transforms = [colmap_data["frames"][i]["transform_matrix"] for i in colmap_frame_inds]
-
-            # TODO: resolve relative transform ambiguity: either remove this if not needed or finish it lol
 
         with open(self.output_dir / "transforms.json", "w", encoding="utf-8") as f:
             json.dump(transforms, f, indent=4)
