@@ -71,24 +71,12 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
                 continue
 
             # Rotation from yaw, pitch, roll
-            # roll = md["XMP:CameraOrientationNEDRoll"]
-            # pitch = md["XMP:CameraOrientationNEDPitch"]
-            # yaw = md["XMP:CameraOrientationNEDYaw"]
-            # R_yaw = np.array([
-            #     [np.cos(yaw), -np.sin(yaw), 0],
-            #     [np.sin(yaw), np.cos(yaw), 0],
-            #     [0, 0, 1],
-            # ])
-            # R_pitch = np.array([
-            #     [np.cos(pitch), 0, np.sin(pitch)],
-            #     [0, 1, 0],
-            #     [-np.sin(pitch), 0, np.cos(pitch)],
-            # ])
-            # R_roll = np.array([
-            #     [1, 0, 0],
-            #     [0, np.cos(roll), -np.sin(roll)],
-            #     [0, np.sin(roll), np.cos(roll)],
-            # ])
+            # roll = md["XMP:CameraOrientationNEDRoll"] * np.pi / 180.
+            # pitch = md["XMP:CameraOrientationNEDPitch"] * np.pi / 180.
+            # yaw = md["XMP:CameraOrientationNEDYaw"] * np.pi / 180.
+            # R_yaw = yaw_matrix(yaw)
+            # R_pitch = pitch_matrix(pitch)
+            # R_roll = roll_matrix(roll)
             # R = R_yaw @ R_pitch @ R_roll
             # R = R_yaw @ R_roll @ R_pitch
             # R = R_roll @ R_yaw @ R_pitch
@@ -102,6 +90,13 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
             quat_z = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}Z"]
             quat_w = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}W"]
             R = Rotation.from_quat([quat_x, quat_y, quat_z, quat_w]).as_matrix()
+
+            # Adjust rotation by camera orientation in gimbal
+            roll_cam = 90. * np.pi / 180.
+            pitch_cam = 0. * np.pi / 180.
+            yaw_cam = 270. * np.pi / 180.
+            R_cam2gimbal = yaw_matrix(yaw_cam) @ pitch_matrix(pitch_cam) @ roll_matrix(roll_cam)
+            R = R @ R_cam2gimbal
 
             # Camera translation
             cam_x = md[f"XMP:CameraPosition{self.coordinate_convention}X"]
@@ -158,3 +153,26 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
 
         for summary in summary_log:
             CONSOLE.log(summary)
+
+
+def yaw_matrix(rad):
+    return np.array([
+        [np.cos(rad), -np.sin(rad), 0.],
+        [np.sin(rad), np.cos(rad), 0.],
+        [0., 0., 1.],
+    ])
+
+
+def pitch_matrix(rad):
+    return np.array([
+        [np.cos(rad), 0., np.sin(rad)],
+        [0., 1., 0.],
+        [-np.sin(rad), 0., np.cos(rad)],
+    ])
+
+def roll_matrix(rad):
+    return np.array([
+        [1., 0., 0.],
+        [0., np.cos(rad), -np.sin(rad)],
+        [0., np.sin(rad), np.cos(rad)],
+    ])
