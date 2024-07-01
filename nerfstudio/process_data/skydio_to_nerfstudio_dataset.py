@@ -94,6 +94,7 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
             # Adjust rotation by camera orientation in gimbal
             roll_cam = 90. * np.pi / 180.
             pitch_cam = 0. * np.pi / 180.
+            # pitch_cam = 180. * np.pi / 180.
             yaw_cam = 270. * np.pi / 180.
             R_cam2gimbal = yaw_matrix(yaw_cam) @ pitch_matrix(pitch_cam) @ roll_matrix(roll_cam)
             R = R @ R_cam2gimbal
