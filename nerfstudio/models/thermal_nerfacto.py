@@ -50,16 +50,18 @@ class ThermalNerfactoModelConfig(NerfactoModelConfig):
     """Number of samples for RGB and thermal density TV loss."""
     tv_pixel_loss_mult: float = 1e-6
     """Pixelwise thermal TV loss multiplier."""
-    camera_opt_regularizer_rgb_mult: float = 1
-    """Additional RGB camera optimizer regularization multiplier."""
-    camera_opt_regularizer_thermal_mult: float = 10
-    """Additional thermal camera optimizer regularization multiplier."""
     cross_channel_loss_mult: float = 1e-6
     """Cross-channel gradient loss multiplier."""
     removal_min_density_diff: float = 0.05
     """Minimum difference between rgb and thermal densities allowed for removal rendering."""
     use_proposal_thermal_weight_anneal: bool = False
     """Whether to use proposal weight annealing for thermal density."""
+    camera_optimizer_thermal: CameraOptimizerConfig = field(default_factory=lambda: CameraOptimizerConfig(mode="SO3xR3", penalty_scale=10))
+    """Config of the thermal camera optimizer to use"""
+    shared_camera_optimizer: CameraOptimizerConfig = field(default_factory=lambda: CameraOptimizerConfig(mode="shared_SO3xR3", penalty_scale=-1))
+    """Config of the shared camera optimizer to use"""
+    shared_camera_optimizer_thermal: CameraOptimizerConfig = field(default_factory=lambda: CameraOptimizerConfig(mode="shared_SO3xR3", penalty_scale=-1))
+    """Config of the shared thermal camera optimizer to use"""
 
 
 class ThermalNerfactoModel(NerfactoModel):
@@ -68,9 +70,9 @@ class ThermalNerfactoModel(NerfactoModel):
     Args:
         config: Thermal Nerfacto configuration to instantiate model
     """
-    # TODO: Warning: ambiguous variable names in this class; sometimes "rgb" means "rgbt."
-    #  This is b/c it's built on the NerfactoModel class and some attribute/method names might need to be
-    #  preserved; still this is probably overused and should be refactored eventually.
+    # HACK: Some ambiguous/unintuitive variable names in this class; sometimes "rgb" means "rgbt."
+    #  This is b/c it's built on the NerfactoModel class and some names need to be preserved;
+    #  still this should be refactored eventually.
 
     config = ThermalNerfactoModelConfig
 
@@ -133,12 +135,26 @@ class ThermalNerfactoModel(NerfactoModel):
                 [i for i, x in enumerate(self.kwargs['metadata']['is_thermal']) if x != 0],
                 dtype=torch.long),
         )
-        self.camera_optimizer_thermal: CameraOptimizer = self.config.camera_optimizer.setup(
+        self.camera_optimizer_thermal: CameraOptimizer = self.config.camera_optimizer_thermal.setup(
             num_cameras=self.num_train_data, device="cpu",
             non_trainable_camera_indices=torch.tensor(
                 [i for i, x in enumerate(self.kwargs['metadata']['is_thermal']) if x == 0],
                 dtype=torch.long),
             suffix="_thermal",
+        )
+        self.shared_camera_optimizer: CameraOptimizer = self.config.shared_camera_optimizer.setup(
+            num_cameras=self.num_train_data, device="cpu",
+            non_trainable_camera_indices=torch.tensor(
+                [i for i, x in enumerate(self.kwargs['metadata']['is_thermal']) if x != 0],
+                dtype=torch.long),
+            suffix="_shared",
+        )
+        self.shared_camera_optimizer_thermal: CameraOptimizer = self.config.shared_camera_optimizer_thermal.setup(
+            num_cameras=self.num_train_data, device="cpu",
+            non_trainable_camera_indices=torch.tensor(
+                [i for i, x in enumerate(self.kwargs['metadata']['is_thermal']) if x == 0],
+                dtype=torch.long),
+            suffix="_shared_thermal",
         )
 
         # Build the thermal proposal network
@@ -259,8 +275,10 @@ class ThermalNerfactoModel(NerfactoModel):
                 )
 
         self.camera_optimizer.get_metrics_dict(metrics_dict)
+        self.shared_camera_optimizer.get_metrics_dict(metrics_dict)
         if self.config.density_mode == "separate":
             self.camera_optimizer_thermal.get_metrics_dict(metrics_dict)
+            self.shared_camera_optimizer_thermal.get_metrics_dict(metrics_dict)
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
@@ -309,8 +327,7 @@ class ThermalNerfactoModel(NerfactoModel):
         # Density RGB/thermal L1 loss
         if self.config.density_mode == "separate" and self.config.density_loss_mult > 0:
             if self.config.rgb_density_loss_mult == 1:
-                # HACK: this could be combined into the below but I'm scared to break previous
-                #  hyperparameter combinations
+                # HACK: this could be combined into the below
                 loss_dict["density_loss"] = self.config.density_loss_mult * self.density_loss(
                     outputs["density2"], outputs["density_thermal"])
                 loss_dict["density_loss"] += self.config.density_loss_mult * self.density_loss(
@@ -361,21 +378,26 @@ class ThermalNerfactoModel(NerfactoModel):
                     )
             # Add loss from camera optimizer
             self.camera_optimizer.get_loss_dict(loss_dict)
-            if self.camera_optimizer.config.mode != "off":
-                loss_dict["camera_opt_regularizer"] *= self.config.camera_opt_regularizer_rgb_mult
             if self.config.density_mode == "separate":
                 self.camera_optimizer_thermal.get_loss_dict(loss_dict)
-                if self.camera_optimizer_thermal.config.mode != "off":
-                    loss_dict["camera_opt_regularizer_thermal"] *= self.config.camera_opt_regularizer_thermal_mult
+
+        self.shared_camera_optimizer.get_loss_dict(loss_dict)
+        if self.config.density_mode == "separate":
+            self.shared_camera_optimizer_thermal.get_loss_dict(loss_dict)
+
         return loss_dict
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         param_groups = super().get_param_groups()
+        # TODO: should shared camera optimizers use a separate optimizer?
+        self.shared_camera_optimizer.get_param_groups(param_groups=param_groups, name="shared_camera_opt")
         if self.config.density_mode == "separate":
             param_groups["proposal_networks_thermal"] = list(self.proposal_networks_thermal.parameters())
             param_groups["fields_thermal"] = list(self.field_thermal.parameters())
             self.camera_optimizer_thermal.get_param_groups(param_groups=param_groups,
                                                            name="camera_opt_thermal")
+            self.shared_camera_optimizer_thermal.get_param_groups(param_groups=param_groups,
+                                                                  name="shared_camera_opt_thermal")
         return param_groups
 
     def get_outputs(self, ray_bundle: RayBundle):
@@ -385,6 +407,7 @@ class ThermalNerfactoModel(NerfactoModel):
         ray_bundle_thermal = copy.deepcopy(ray_bundle)
 
         # apply the camera optimizer pose tweaks
+        self.shared_camera_optimizer.apply_to_raybundle(ray_bundle)
         if self.training:
             self.camera_optimizer.apply_to_raybundle(ray_bundle)
 
@@ -406,6 +429,7 @@ class ThermalNerfactoModel(NerfactoModel):
 
         elif self.config.density_mode == "separate":
             # apply the camera optimizer pose tweaks
+            self.shared_camera_optimizer_thermal.apply_to_raybundle(ray_bundle_thermal)
             if self.training:
                 self.camera_optimizer_thermal.apply_to_raybundle(ray_bundle_thermal)
 

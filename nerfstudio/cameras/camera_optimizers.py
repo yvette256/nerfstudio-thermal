@@ -43,7 +43,7 @@ class CameraOptimizerConfig(InstantiateConfig):
 
     _target: Type = field(default_factory=lambda: CameraOptimizer)
 
-    mode: Literal["off", "SO3xR3", "SE3"] = "off"
+    mode: Literal["off", "SO3xR3", "SE3", "shared_SO3xR3"] = "off"
     """Pose optimization strategy to use. If enabled, we recommend SO3xR3."""
 
     trans_l2_penalty: float = 1e-2
@@ -51,6 +51,9 @@ class CameraOptimizerConfig(InstantiateConfig):
 
     rot_l2_penalty: float = 1e-3
     """L2 penalty on rotation parameters."""
+
+    penalty_scale: float = 1
+    """Multiplier scaling translation + rotation penalties. If -1, mode = off."""
 
     # tyro.conf.Suppress prevents us from creating CLI arguments for these fields.
     optimizer: tyro.conf.Suppress[Optional[OptimizerConfig]] = field(default=None)
@@ -102,11 +105,16 @@ class CameraOptimizer(nn.Module):
         self.device = device
         self.non_trainable_camera_indices = non_trainable_camera_indices
 
+        if self.config.penalty_scale < 0:
+            self.config.mode = "off"
+
         # Initialize learnable parameters.
         if self.config.mode == "off":
             pass
         elif self.config.mode in ("SO3xR3", "SE3"):
             self.pose_adjustment = torch.nn.Parameter(torch.zeros((num_cameras, 6), device=device))
+        elif self.config.mode == "shared_SO3xR3":
+            self.pose_adjustment = torch.nn.Parameter(torch.zeros((1, 6), device=device))
         else:
             assert_never(self.config.mode)
 
@@ -139,6 +147,8 @@ class CameraOptimizer(nn.Module):
             outputs.append(exp_map_SO3xR3(self.pose_adjustment[indices, :]))
         elif self.config.mode == "SE3":
             outputs.append(exp_map_SE3(self.pose_adjustment[indices, :]))
+        elif self.config.mode == "shared_SO3xR3":
+            outputs.append(exp_map_SO3xR3(self.pose_adjustment).tile((indices.shape[0], 1, 1)))
         else:
             assert_never(self.config.mode)
 
@@ -181,7 +191,7 @@ class CameraOptimizer(nn.Module):
             loss_dict[f"camera_opt_regularizer{self.suffix}"] = (
                 self.pose_adjustment[:, :3].norm(dim=-1).mean() * self.config.trans_l2_penalty
                 + self.pose_adjustment[:, 3:].norm(dim=-1).mean() * self.config.rot_l2_penalty
-            )
+            ) * self.config.penalty_scale
 
     def get_correction_matrices(self):
         """Get optimized pose correction matrices"""

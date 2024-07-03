@@ -296,6 +296,14 @@ method_configs["thermal-nerfacto"] = TrainerConfig(
             "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
             "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=5000),
         },
+        "shared_camera_opt": {
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
+            "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=5000),
+        },
+        "shared_camera_opt_thermal": {
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
+            "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=5000),
+        },
     },
     viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
     vis="viewer",
