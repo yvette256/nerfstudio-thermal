@@ -595,6 +595,8 @@ class RenderInterpolated(BaseRender):
     """Frame rate of the output video."""
     output_format: Literal["images", "video"] = "video"
     """How to save output data."""
+    rgb_poses_only: bool = True
+    """For a RGBT dataset, whether to use only the RGB poses."""
 
     def main(self) -> None:
         """Main function."""
@@ -609,9 +611,24 @@ class RenderInterpolated(BaseRender):
         if self.pose_source == "eval":
             assert pipeline.datamanager.eval_dataset is not None
             cameras = pipeline.datamanager.eval_dataset.cameras
+            dataset = pipeline.datamanager.eval_dataset
         else:
             assert pipeline.datamanager.train_dataset is not None
             cameras = pipeline.datamanager.train_dataset.cameras
+            dataset = pipeline.datamanager.train_dataset
+
+        if self.rgb_poses_only:
+            Ks = cameras.get_intrinsics_matrices()
+            poses = cameras.camera_to_worlds
+            rgb_inds = (1 - torch.tensor(dataset.metadata["is_thermal"])).bool()
+            cameras = Cameras(
+                fx=Ks[rgb_inds, 0, 0],
+                fy=Ks[rgb_inds, 1, 1],
+                cx=Ks[0, 0, 2],
+                cy=Ks[0, 1, 2],
+                camera_type=cameras.camera_type[0],
+                camera_to_worlds=poses[rgb_inds],
+            )
 
         seconds = self.interpolation_steps * len(cameras) / self.frame_rate
         camera_path = get_interpolated_camera_path(
