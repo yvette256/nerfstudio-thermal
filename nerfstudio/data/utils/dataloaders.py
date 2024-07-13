@@ -53,6 +53,7 @@ class CacheDataloader(DataLoader):
         dataset: Dataset,
         num_images_to_sample_from: int = -1,
         num_times_to_repeat_images: int = -1,
+        sample_images_randomly: bool = True,
         device: Union[torch.device, str] = "cpu",
         collate_fn: Callable[[Any], Any] = nerfstudio_collate,
         exclude_batch_keys_from_device: Optional[List[str]] = None,
@@ -74,6 +75,8 @@ class CacheDataloader(DataLoader):
 
         self.num_repeated = self.num_times_to_repeat_images  # starting value
         self.first_time = True
+        self.sample_images_randomly = sample_images_randomly
+        self.num_times_images_resampled = 0
 
         self.cached_collated_batch = None
         if self.cache_all_images:
@@ -89,7 +92,9 @@ class CacheDataloader(DataLoader):
             )
         else:
             CONSOLE.print(
-                f"Caching {self.num_images_to_sample_from} out of {len(self.dataset)} images, "
+                f"Caching {self.num_images_to_sample_from * ((not self.sample_images_randomly) * self.num_times_images_resampled + 1)} "
+                f"out of {len(self.dataset)} images, "
+                f"{'' if self.sample_images_randomly else 'non-'}randomly "
                 f"resampling every {self.num_times_to_repeat_images} iters."
             )
 
@@ -100,7 +105,15 @@ class CacheDataloader(DataLoader):
         """Returns a list of batches from the dataset attribute."""
 
         assert isinstance(self.dataset, Sized)
-        indices = random.sample(range(len(self.dataset)), k=self.num_images_to_sample_from)
+        if self.sample_images_randomly:
+            indices = random.sample(range(len(self.dataset)), k=self.num_images_to_sample_from)
+        else:
+            # HACK: assume ordering of rgb/thermal images to get equal num of rgb/thermal images
+            indices = list(range(self.num_images_to_sample_from // 2 * (self.num_times_images_resampled + 1)))
+            indices += list(range(
+                len(self.dataset) // 2,
+                len(self.dataset) // 2 + self.num_images_to_sample_from // 2 * (self.num_times_images_resampled + 1),
+            ))
         batch_list = []
         results = []
 
@@ -113,7 +126,7 @@ class CacheDataloader(DataLoader):
                 res = executor.submit(self.dataset.__getitem__, idx)
                 results.append(res)
 
-            for res in track(results, description="Loading data batch", transient=True):
+            for res in track(results, description=f"Loading data batch ({len(indices)} images)", transient=True):
                 batch_list.append(res.result())
 
         return batch_list
@@ -125,6 +138,7 @@ class CacheDataloader(DataLoader):
         collated_batch = get_dict_to_torch(
             collated_batch, device=self.device, exclude=self.exclude_batch_keys_from_device
         )
+        self.num_times_images_resampled += 1
         return collated_batch
 
     def __iter__(self):

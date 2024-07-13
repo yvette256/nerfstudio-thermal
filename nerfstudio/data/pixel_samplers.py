@@ -312,6 +312,7 @@ class PixelSampler:
         indices = torch.cat(all_indices, dim=0)
 
         c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
+        c_ = c.detach().clone()
         collated_batch = {
             key: value[c, y, x]
             for key, value in batch.items()
@@ -329,8 +330,9 @@ class PixelSampler:
         if keep_full_image:
             collated_batch["full_image"] = batch["image"]
         if "is_thermal" in batch:
-            thermal_idx = batch["is_thermal"][batch["image_idx"].sort()[1]]
-            collated_batch["is_thermal"] = thermal_idx[c]
+            # batch_is_thermal = batch["is_thermal"][batch["image_idx"].sort()[1]]
+            # collated_batch["is_thermal"] = batch_is_thermal[c]
+            collated_batch["is_thermal"] = batch["is_thermal"][c_]
 
         return collated_batch
 
