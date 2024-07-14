@@ -29,6 +29,8 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
     """Maximum number of images to process. If -1, no maximum."""
     rgb_only: bool = False
     """Whether to process only RGB images."""
+    use_quat_poses: bool = False
+    """Whether to use quaternion poses. If False, uses RPY poses."""
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -70,31 +72,29 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
             if self.rgb_only and frame["is_thermal"]:
                 continue
 
-            # Rotation from yaw, pitch, roll
-            # roll = md["XMP:CameraOrientationNEDRoll"] * np.pi / 180.
-            # pitch = md["XMP:CameraOrientationNEDPitch"] * np.pi / 180.
-            # yaw = md["XMP:CameraOrientationNEDYaw"] * np.pi / 180.
-            # R_yaw = yaw_matrix(yaw)
-            # R_pitch = pitch_matrix(pitch)
-            # R_roll = roll_matrix(roll)
-            # R = R_yaw @ R_pitch @ R_roll
-            # R = R_yaw @ R_roll @ R_pitch
-            # R = R_roll @ R_yaw @ R_pitch
-            # R = R_roll @ R_pitch @ R_yaw
-            # R = R_pitch @ R_roll @ R_yaw
-            # R = R_pitch @ R_yaw @ R_roll
-
-            # Rotation from quaternion
-            quat_x = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}X"]
-            quat_y = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}Y"]
-            quat_z = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}Z"]
-            quat_w = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}W"]
-            R = Rotation.from_quat([quat_x, quat_y, quat_z, quat_w]).as_matrix()
+            if not self.use_quat_poses:
+                # Rotation from yaw, pitch, roll
+                roll = md["XMP:CameraOrientationNEDRoll"] * np.pi / 180.
+                pitch = md["XMP:CameraOrientationNEDPitch"] * np.pi / 180.
+                yaw = md["XMP:CameraOrientationNEDYaw"] * np.pi / 180.
+                R_yaw = yaw_matrix(yaw)
+                R_pitch = pitch_matrix(pitch)
+                R_roll = roll_matrix(roll)
+                R = R_yaw @ R_pitch @ R_roll
+            else:
+                # Rotation from quaternion
+                quat_x = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}X"]
+                quat_y = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}Y"]
+                quat_z = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}Z"]
+                quat_w = md[f"XMP:CameraOrientationQuat{self.coordinate_convention}W"]
+                R = Rotation.from_quat([quat_x, quat_y, quat_z, quat_w]).as_matrix()
 
             # Adjust rotation by camera orientation in gimbal
             roll_cam = 90. * np.pi / 180.
-            pitch_cam = 0. * np.pi / 180.
-            # pitch_cam = 180. * np.pi / 180.
+            if not self.use_quat_poses:
+                pitch_cam = 180. * np.pi / 180.
+            else:
+                pitch_cam = 0. * np.pi / 180.
             yaw_cam = 270. * np.pi / 180.
             R_cam2gimbal = yaw_matrix(yaw_cam) @ pitch_matrix(pitch_cam) @ roll_matrix(roll_cam)
             R = R @ R_cam2gimbal
@@ -109,10 +109,7 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
 
             M = np.identity(4)
             M[:3, :3] = R
-            # TODO: what are the correct c2w matrices?
-            # M = M @ T
             M[:3, 3] = t
-            # M = np.linalg.inv(M)
             frame["transform_matrix"] = M.tolist()
 
             # Camera intrinsics + distortion coeffs + image w, h
