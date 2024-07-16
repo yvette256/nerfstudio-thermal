@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Type
 
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import Nerfstudio, NerfstudioDataParserConfig
-from nerfstudio.utils.io import load_from_json
 
 
 @dataclass
@@ -19,23 +19,12 @@ class ThermalNerf(Nerfstudio):
 
     config = ThermalNerfDataParserConfig
 
-    def _generate_dataparser_outputs(self, split="train"):
-        dataparser_outputs = super()._generate_dataparser_outputs(split=split)
-
-        if self.config.data.suffix == ".json":
-            meta = load_from_json(self.config.data)
-        else:
-            meta = load_from_json(self.config.data / "transforms.json")
-
-        # is_thermal = [frame["is_thermal"] for frame in meta["frames"]]
-        is_thermal = []
-        # HACK: find corresponding frame w/ naive search after generating other outputs
-        #  should probably somehow pass indices of data split directly
-        for filename in dataparser_outputs.image_filenames:
-            for frame in meta["frames"]:
-                if filename.as_posix().endswith(frame["file_path"]):
-                    is_thermal.append(frame["is_thermal"])
-                    break
-        assert len(is_thermal) == len(dataparser_outputs.image_filenames)
-        dataparser_outputs.metadata["is_thermal"] = is_thermal
+    def _generate_dataparser_outputs(self, split="train", metadata_keys=()):
+        dataparser_outputs = super()._generate_dataparser_outputs(
+            split=split, metadata_keys=("is_thermal",) + metadata_keys)
         return dataparser_outputs
+
+    def _get_fname(self, filepath: Path, data_dir: Path, downsample_folder_prefix="images_") -> Path:
+        if downsample_folder_prefix == "images_":
+            downsample_folder_prefix = f"{filepath.parent.name}_"
+        return super()._get_fname(filepath, data_dir, downsample_folder_prefix=downsample_folder_prefix)

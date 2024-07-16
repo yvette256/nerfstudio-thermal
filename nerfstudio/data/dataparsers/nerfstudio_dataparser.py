@@ -86,7 +86,7 @@ class Nerfstudio(DataParser):
     config: NerfstudioDataParserConfig
     downscale_factor: Optional[int] = None
 
-    def _generate_dataparser_outputs(self, split="train"):
+    def _generate_dataparser_outputs(self, split="train", metadata_keys=()):
         assert self.config.data.exists(), f"Data directory {self.config.data} does not exist."
 
         if self.config.data.suffix == ".json":
@@ -402,6 +402,13 @@ class Nerfstudio(DataParser):
                 if sparse_points is not None:
                     metadata.update(sparse_points)
             self.prompted_user = True
+
+        # Update metadata with additional keys
+        for key in metadata_keys:
+            data = [frame[key] for frame in frames]
+            data = [data[i] for i in indices]
+            assert len(data) == len(image_filenames)
+            metadata[key] = data
 
         dataparser_outputs = DataparserOutputs(
             image_filenames=image_filenames,
