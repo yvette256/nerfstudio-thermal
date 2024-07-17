@@ -31,14 +31,12 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
     """Whether to process only RGB images."""
     use_quat_poses: bool = False
     """Whether to use quaternion poses. If False, uses RPY poses."""
+    colmap_transforms_file: Optional[Path] = None
+    """Name of colmap transforms json file. If None and skip-colmap, poses in metadata are used."""
 
     def __post_init__(self) -> None:
         super().__post_init__()
         self.thermal_image_dir.mkdir(parents=True, exist_ok=True)
-
-    def _rgb_to_thermal_path(self, path: str) -> str:
-        # HACK: not robust to different data / thermal_data paths
-        return path.replace("images", "images_thermal")
 
     @property
     def thermal_image_dir(self) -> Path:
@@ -126,7 +124,7 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
             if not self.skip_image_processing:
                 # Copy images to self.output_dir
                 dst = self.thermal_image_dir if frame["is_thermal"] else self.image_dir
-                filename = f"frame_{n_thermal if frame['is_thermal'] else n_rgb:05d}.jpg"
+                filename = f"frame_{n_thermal + 1 if frame['is_thermal'] else n_rgb + 1:05d}.jpg"
                 subdir = "images_thermal" if frame["is_thermal"] else "images"
                 frame["file_path"] = Path(subdir) / filename
                 shutil.copy(file, dst / filename)
@@ -143,6 +141,105 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
 
             if -1 < self.max_num_images <= n_thermal + n_rgb:
                 break
+
+        # Downscale RGB images
+        if not self.skip_image_processing:
+            for (image_dir, n) in ((self.image_dir, n_rgb), (self.thermal_image_dir, n_thermal)):
+                image_filenames = [image_dir / f"frame_{i:05d}.jpg" for i in range(1, n + 1)]
+                copied_image_paths = process_data_utils.copy_images_list(
+                    image_filenames,
+                    image_dir=image_dir,
+                    verbose=self.verbose,
+                    num_downscales=self.num_downscales,
+                    keep_image_dir=True,
+                )
+                assert len(copied_image_paths) == n
+
+        # Run COLMAP
+        if not self.skip_colmap:
+            require_cameras_exist = True
+            self._run_colmap()
+            # Colmap uses renamed images
+            image_rename_map = None
+
+            # Export depth maps
+            image_id_to_depth_path, log_tmp = self._export_depth()
+            summary_log += log_tmp
+
+            if require_cameras_exist and not (self.absolute_colmap_model_path / "cameras.bin").exists():
+                raise RuntimeError(f"Could not find existing COLMAP results ({self.colmap_model_path / 'cameras.bin'}).")
+
+            summary_log += self._save_transforms(
+                n_rgb,
+                image_id_to_depth_path,
+                None,
+                image_rename_map,
+            )
+
+        colmap_transforms_path = None
+        if not self.skip_colmap:
+            colmap_transforms_path = "transforms.json"
+        elif self.colmap_transforms_file:
+            colmap_transforms_path = self.colmap_transforms_file
+
+        # Use RGB + thermal COLMAP poses
+        if colmap_transforms_path:
+            with open(self.output_dir / colmap_transforms_path, "r", encoding="utf-8") as f:
+                colmap_transforms = json.load(f)
+
+            # Transform thermal poses into COLMAP space
+            # HACK: assumes that we see >=2 rgb frames before the 1st thermal frame + 1st frame is rgb
+            metadata_rgb_ind = -1
+            colmap_rgb_ind = -1
+            for i, frame in enumerate(transforms["frames"]):
+                if not frame["is_thermal"]:
+                    metadata_rgb_ind = i
+                    colmap_rgb_ind += 1
+                else:
+                    # Latest RGB camera poses
+                    M0_rgb_metadata, M_rgb_metadata = (np.array(transforms["frames"][j]["transform_matrix"])
+                                                       for j in (0, metadata_rgb_ind))
+                    R_rgb_metadata = M_rgb_metadata[:3, :3]
+                    t0_rgb_metadata, t_rgb_metadata = M0_rgb_metadata[:3, 3], M_rgb_metadata[:3, 3]
+
+                    M0_rgb_colmap, M_rgb_colmap = (np.array(colmap_transforms["frames"][j]["transform_matrix"])
+                                                   for j in (0, colmap_rgb_ind))
+                    R_rgb_colmap = M_rgb_colmap[:3, :3]
+                    t0_rgb_colmap, t_rgb_colmap = M0_rgb_colmap[:3, 3], M_rgb_colmap[:3, 3]
+
+                    # Thermal poses from metadata
+                    M_metadata = np.array(frame["transform_matrix"])
+                    R_metadata = M_metadata[:3, :3]
+                    t_metadata = M_metadata[:3, 3]
+
+                    # Relative scale of COLMAP and real world
+                    d_metadata = np.linalg.norm(t0_rgb_metadata - t_rgb_metadata)
+                    d_colmap = np.linalg.norm(t0_rgb_colmap - t_rgb_colmap)
+                    s_metadata2colmap = d_colmap / d_metadata
+
+                    R_metadata2colmap = R_rgb_colmap @ np.linalg.inv(R_rgb_metadata)
+                    R_thermal = R_metadata2colmap @ R_metadata
+                    t_thermal = t_rgb_colmap + R_metadata2colmap @ (s_metadata2colmap * (t_metadata - t_rgb_metadata))
+
+                    M_thermal = np.identity(4)
+                    M_thermal[:3, :3] = R_thermal
+                    M_thermal[:3, 3] = t_thermal
+
+                    frame["transform_matrix"] = M_thermal.tolist()
+                    frame["is_thermal"] = 1
+
+            # Copy over COLMAP RGB poses
+            colmap_camera_params = {k: colmap_transforms[k]
+                                    for k in ("w", "h", "fl_x", "fl_y", "cx", "cy", "k1", "k2", "p1", "p2")}
+            colmap_ind = 0
+            for i, frame in enumerate(transforms["frames"]):
+                if not frame["is_thermal"]:
+                    transforms["frames"][i] = colmap_transforms["frames"][colmap_ind]
+                    transforms["frames"][i].update(colmap_camera_params)
+                    transforms["frames"][i]["is_thermal"] = 0
+                    colmap_ind += 1
+
+        assert len(transforms["frames"]) == n_rgb + n_thermal
 
         with open(self.output_dir / "transforms.json", "w", encoding="utf-8") as f:
             json.dump(transforms, f, indent=4)
