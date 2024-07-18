@@ -6,6 +6,7 @@ from typing import Literal, Optional
 
 import exiftool
 import numpy as np
+from rich.progress import track
 from scipy.spatial.transform import Rotation
 
 from nerfstudio.process_data import process_data_utils
@@ -55,10 +56,10 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
         n_rgb = 0
         n_thermal = 0
 
-        files = process_data_utils.list_images(self.data, recursive=True)
+        files = process_data_utils.list_images(self.data, recursive=self.skip_image_processing)
         with exiftool.ExifToolHelper() as et:
             metadata = et.get_metadata(files)
-        for i, (file, md) in enumerate(zip(files, metadata)):
+        for i, (file, md) in track(enumerate(zip(files, metadata)), description="Reading metadata", transient=True):
             frame = {}
             try:
                 frame["is_thermal"] = 1 if md["XMP:CameraSource"] == "INFRARED" else 0
@@ -143,7 +144,7 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
                 break
 
         # Downscale RGB images
-        if not self.skip_image_processing:
+        if not self.skip_image_processing and self.num_downscales > 0:
             for (image_dir, n) in ((self.image_dir, n_rgb), (self.thermal_image_dir, n_thermal)):
                 image_filenames = [image_dir / f"frame_{i:05d}.jpg" for i in range(1, n + 1)]
                 copied_image_paths = process_data_utils.copy_images_list(
@@ -186,9 +187,9 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
         if colmap_transforms_path:
             with open(self.output_dir / colmap_transforms_path, "r", encoding="utf-8") as f:
                 colmap_transforms = json.load(f)
+            colmap_transforms["frames"].sort(key=lambda x: x["file_path"])
 
             # Transform thermal poses into COLMAP space
-            # HACK: assumes that we see >=2 rgb frames before the 1st thermal frame + 1st frame is rgb
             metadata_rgb_ind = -1
             colmap_rgb_ind = -1
             for i, frame in enumerate(transforms["frames"]):
@@ -197,35 +198,15 @@ class SkydioToNerfstudioDataset(ImagesToNerfstudioDataset):
                     colmap_rgb_ind += 1
                 else:
                     # Latest RGB camera poses
-                    M0_rgb_metadata, M_rgb_metadata = (np.array(transforms["frames"][j]["transform_matrix"])
-                                                       for j in (0, metadata_rgb_ind))
-                    R_rgb_metadata = M_rgb_metadata[:3, :3]
-                    t0_rgb_metadata, t_rgb_metadata = M0_rgb_metadata[:3, 3], M_rgb_metadata[:3, 3]
-
-                    M0_rgb_colmap, M_rgb_colmap = (np.array(colmap_transforms["frames"][j]["transform_matrix"])
-                                                   for j in (0, colmap_rgb_ind))
-                    R_rgb_colmap = M_rgb_colmap[:3, :3]
-                    t0_rgb_colmap, t_rgb_colmap = M0_rgb_colmap[:3, 3], M_rgb_colmap[:3, 3]
+                    M_rgb2metadata = np.array(transforms["frames"][metadata_rgb_ind]["transform_matrix"])
+                    M_rgb2colmap = np.array(colmap_transforms["frames"][colmap_rgb_ind]["transform_matrix"])
 
                     # Thermal poses from metadata
-                    M_metadata = np.array(frame["transform_matrix"])
-                    R_metadata = M_metadata[:3, :3]
-                    t_metadata = M_metadata[:3, 3]
+                    M_thermal2metadata = np.array(frame["transform_matrix"])
 
-                    # Relative scale of COLMAP and real world
-                    d_metadata = np.linalg.norm(t0_rgb_metadata - t_rgb_metadata)
-                    d_colmap = np.linalg.norm(t0_rgb_colmap - t_rgb_colmap)
-                    s_metadata2colmap = d_colmap / d_metadata
+                    M_thermal2colmap = M_rgb2colmap @ np.linalg.inv(M_rgb2metadata) @ M_thermal2metadata
 
-                    R_metadata2colmap = R_rgb_colmap @ np.linalg.inv(R_rgb_metadata)
-                    R_thermal = R_metadata2colmap @ R_metadata
-                    t_thermal = t_rgb_colmap + R_metadata2colmap @ (s_metadata2colmap * (t_metadata - t_rgb_metadata))
-
-                    M_thermal = np.identity(4)
-                    M_thermal[:3, :3] = R_thermal
-                    M_thermal[:3, 3] = t_thermal
-
-                    frame["transform_matrix"] = M_thermal.tolist()
+                    frame["transform_matrix"] = M_thermal2colmap.tolist()
                     frame["is_thermal"] = 1
 
             # Copy over COLMAP RGB poses
