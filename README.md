@@ -1,6 +1,6 @@
 # ThermalNeRF: Thermal Radiance Fields
 
-[Webpage](https://yvette256.github.io/thermalnerf/) | [Paper](https://yvette256.github.io/thermalnerf/thermalnerf.pdf)
+[Webpage](https://yvette256.github.io/thermalnerf/) | [Paper](https://arxiv.org/abs/2407.15337)
 
 [//]: # (<img src="https://user-images.githubusercontent.com/3310961/194017985-ade69503-9d68-46a2-b518-2db1a012f090.gif" width="52%"/> <img src="https://user-images.githubusercontent.com/3310961/194020648-7e5f380c-15ca-461d-8c1c-20beb586defe.gif" width="46%"/>)
 
