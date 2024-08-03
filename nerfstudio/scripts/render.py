@@ -728,7 +728,7 @@ class DatasetRender(BaseRender):
     """Path to output video file."""
     data: Optional[Path] = None
     """Override path to the dataset."""
-    downscale_factor: Optional[float] = None
+    downscale_factor: Optional[int] = None
     """Scaling factor to apply to the camera image resolution."""
     split: Literal["train", "val", "test", "train+test"] = "test"
     """Split to render."""
