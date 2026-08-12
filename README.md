@@ -1,3 +1,5 @@
+
+
 # ThermalNeRF: Thermal Radiance Fields
 
 [Webpage](https://yvette256.github.io/thermalnerf/) | [Paper](https://arxiv.org/abs/2407.15337)
@@ -137,7 +139,7 @@ We support four different methods to track training progress, using the viewer: 
 It is possible to load a pretrained model by running
 
 ```bash
-python ns-train nerfacto --data DATA_PATH --load-dir MODEL_PATH
+python ns-train thermal-nerfacto --data DATA_PATH --load-dir MODEL_PATH
 ```
 
 #### Additional configuration options
